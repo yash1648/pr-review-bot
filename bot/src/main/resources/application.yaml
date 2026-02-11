@@ -1,3 +1,40 @@
+# Application configuration for the GitHub bot.
 spring:
   application:
     name: bot
+
+# Server configuration
+server:
+  port: 8080
+
+# GitHub App configuration
+
+github:
+  app:
+    id:${GITHUB_APP_ID}
+    client-id:${GITHUB_CLIENT_ID}
+    private-key-path:${GITHUB_APP_PRIVATE_KEY_PATH:../certs/github-app.pem}
+    webhook-secret:${GITHUB_WEBHOOK_SECRET}
+  api:
+    base-url: https://api.github.com
+
+# LLM configuration
+llm:
+  provider: ollama
+  base-url: http://localhost:11434
+  model: qwen2.5-coder
+  timeout-seconds: 120
+  max-tokens: 2048
+  temperature: 0.1
+
+# Logging configuration
+analysis:
+  heuristics:
+    enabled: true
+  llm:
+    enabled: true
+    context-lines: 5
+
+logging:
+  level:
+    com.example.bot: DEBUG
