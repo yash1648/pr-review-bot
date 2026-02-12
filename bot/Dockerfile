@@ -1,7 +1,7 @@
 #STAGE 1 : Build the application
 FROM eclipse-temurin:25-jdk-alpine AS builder
 WORKDIR /app
-COPY . .
+COPY .. .
 RUN ./bot/mvnw clean package -DskipTests
 
 #STAGE 2 : Run the application
