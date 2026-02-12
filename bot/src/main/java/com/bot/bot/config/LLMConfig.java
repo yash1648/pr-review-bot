@@ -4,6 +4,13 @@ package com.bot.bot.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
+/**
+ * LLM configuration properties.
+ * These properties are loaded from application.properties or application.yml file.
+ * The prefix for these properties is "llm".
+ */
+
+
 @Configuration
 @ConfigurationProperties(prefix = "llm")
 public class LLMConfig {
