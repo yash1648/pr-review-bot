@@ -27,7 +27,7 @@ The system follows a pipeline architecture:
 5. **Finding Merger**: Deduplicates and ranks findings
 6. **Review Publisher**: Submits structured review to GitHub
 
-See [Architecture Documentation](docs/ARCHITECTURE.md) for details.
+See [Architecture Documentation](docs/Architecture.md) for details.
 
 ## Quick Start
 
@@ -146,7 +146,7 @@ public class MyCustomRule implements Rule {
 
 ## Deployment
 
-See [Deployment Guide](docs/DEPLOYMENT.md) for:
+See [Deployment Guide](docs/Deployment.md) for:
 
 - Docker deployment
 - Kubernetes manifests
