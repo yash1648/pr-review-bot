@@ -4,6 +4,11 @@ package com.bot.bot.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
+/***
+ * Github App configuration properties.
+ * * These properties are loaded from application.properties or application.yml file.
+ * * The prefix for these properties is "github.app".
+ */
 @Configuration
 @ConfigurationProperties(prefix = "github.app")
 public class GithubConfig {
