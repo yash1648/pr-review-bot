@@ -2,39 +2,41 @@
 spring:
   application:
     name: bot
+  webflux:
+    base-path: /
 
-# Server configuration
 server:
   port: 8080
-
-# GitHub App configuration
-
-github:
-  app:
-    id:${GITHUB_APP_ID}
-    client-id:${GITHUB_CLIENT_ID}
-    private-key-path:${GITHUB_APP_PRIVATE_KEY_PATH:../certs/github-app.pem}
-    webhook-secret:${GITHUB_WEBHOOK_SECRET}
-  api:
-    base-url: https://api.github.com
-
-# LLM configuration
-llm:
-  provider: ollama
-  base-url: http://localhost:11434
-  model: qwen2.5-coder
-  timeout-seconds: 120
-  max-tokens: 2048
-  temperature: 0.1
-
-# Logging configuration
-analysis:
-  heuristics:
-    enabled: true
-  llm:
-    enabled: true
-    context-lines: 5
+  servlet:
+    context-path: /
+  address: 0.0.0.0
 
 logging:
   level:
-    com.example.bot: DEBUG
+    root: INFO
+    com.prbot: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+
+# GitHub Configuration
+github:
+  app-id: ${GITHUB_APP_ID:}
+  client-id: ${GITHUB_CLIENT_ID:}
+  webhook-secret: ${GITHUB_WEBHOOK_SECRET:}
+  private-key-path: ${GITHUB_PRIVATE_KEY_PATH:certs/github-app.pem}
+  api-url: https://api.github.com
+
+# LLM Configuration
+llm:
+  model: ${LLM_MODEL:qwen2.5-coder:7b}
+  base-url: ${LLM_BASE_URL:http://localhost:11434}
+  timeout-seconds: ${LLM_TIMEOUT_SECONDS:60}
+  enabled: ${LLM_ENABLED:true}
+
+# Application Configuration
+app:
+  max-diff-size-bytes: ${MAX_DIFF_SIZE_BYTES:1048576}
+  max-files-per-pr: ${MAX_FILES_PER_PR:50}
+  heuristics-enabled: ${HEURISTICS_ENABLED:true}
+  llm-enabled: ${LLM_ENABLED:true}
+  enable-comment-deletion: ${ENABLE_COMMENT_DELETION:false}

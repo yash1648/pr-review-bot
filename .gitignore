@@ -11,7 +11,7 @@ bot/certs/*
 .settings
 .springBeans
 .sts4-cache
-
+ngrok.yml
 
 # Created by https://www.gitignore.io/api/git,java,maven,eclipse,windows
 

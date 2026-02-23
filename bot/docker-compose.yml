@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: pr-review-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+    command: serve
+
+  pr-review-bot:
+    build: .
+    container_name: pr-review-bot
+    ports:
+      - "8080:8080"
+    depends_on:
+      - ollama
+    environment:
+      GITHUB_APP_ID: ${GITHUB_APP_ID}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET}
+      GITHUB_PRIVATE_KEY_PATH: /app/certs/github-app.pem
+      LLM_BASE_URL: http://ollama:11434
+      LLM_MODEL: qwen2.5-coder:7b
+    volumes:
+      - ./certs:/app/certs
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
