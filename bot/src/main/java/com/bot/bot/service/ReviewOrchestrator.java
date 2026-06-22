@@ -45,28 +45,27 @@ public class ReviewOrchestrator {
         log.info("Starting PR review process");
 
         try {
-            gitHubApiClient.fetchPullRequestContext(webhookData)
-                    .flatMap(this::loadRepoConfig)
-                    .flatMap(tuple -> processPullRequestContext(tuple.prContext, tuple.config))
+            // Parse PR metadata (synchronous, from webhook JSON — no API call)
+            PullRequestContext prContext = gitHubApiClient.fetchPullRequestContext(webhookData);
+
+            // Load per-repo config
+            loadRepoConfig(prContext)
+                    .flatMap(config -> processPullRequestContext(prContext, config))
                     .block();
         } catch (Exception e) {
             log.error("Error processing PR review", e);
         }
     }
 
-    /** Holds a PR context with its per-repo config. */
-    private record ContextWithConfig(PullRequestContext prContext, ReviewConfig config) {}
-
     /** Fetch per-repo config, falling back to defaults. */
-    private Mono<ContextWithConfig> loadRepoConfig(PullRequestContext prContext) {
+    private Mono<ReviewConfig> loadRepoConfig(PullRequestContext prContext) {
         return repoConfigLoader.loadConfig(prContext.getOwner(), prContext.getRepo())
                 .defaultIfEmpty(new ReviewConfig())
-                .map(config -> {
+                .doOnNext(config -> {
                     if (!config.isEnabled()) {
                         log.info("PR review disabled by .prreview.yaml for {}/{}",
                                 prContext.getOwner(), prContext.getRepo());
                     }
-                    return new ContextWithConfig(prContext, config);
                 });
     }
 
@@ -78,9 +77,12 @@ public class ReviewOrchestrator {
             return Mono.empty();
         }
 
-        log.info("Processing PR {}/{}/#{}", prContext.getOwner(), prContext.getRepo(), prContext.getPrNumber());
+        long installationId = prContext.getInstallationId();
+        log.info("Processing PR {}/{}/#{} (installation {})",
+                prContext.getOwner(), prContext.getRepo(), prContext.getPrNumber(), installationId);
 
-        return gitHubApiClient.fetchDiff(prContext.getOwner(), prContext.getRepo(), prContext.getPrNumber())
+        return gitHubApiClient.fetchDiff(prContext.getOwner(), prContext.getRepo(),
+                        prContext.getPrNumber(), installationId)
                 .map(diff -> {
                     List<ChangeChunk> chunks = diffParser.parse(diff);
                     log.info("Parsed {} change chunks", chunks.size());
@@ -205,7 +207,7 @@ public class ReviewOrchestrator {
 
         return reviewPublisher.publishReview(
                         prContext.getOwner(), prContext.getRepo(), prContext.getPrNumber(),
-                        rankedFindings, autoApprove, inlineComments)
+                        rankedFindings, autoApprove, inlineComments, prContext.getInstallationId())
                 .doOnSuccess(v -> log.info("Review published successfully for {}/{}/PR#{}",
                         prContext.getOwner(), prContext.getRepo(), prContext.getPrNumber()))
                 .doOnError(e -> log.error("Error publishing review for {}/{}/PR#{}",

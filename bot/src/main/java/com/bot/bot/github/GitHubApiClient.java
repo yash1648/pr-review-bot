@@ -12,6 +12,8 @@ import com.google.gson.JsonObject;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 
 @Slf4j
@@ -23,82 +25,132 @@ public class GitHubApiClient {
     private final WebClient webClient;
     private final Gson gson;
 
-    public Mono<PullRequestContext> fetchPullRequestContext(JsonObject prData) {
-        try {
-            JsonObject repo = prData.getAsJsonObject("repository");
-            JsonObject pr = prData.getAsJsonObject("pull_request");
-            if (repo == null || pr == null) {
-                return Mono.error(new IllegalArgumentException("Missing repository or pull_request in webhook payload"));
-            }
+    // Installation token cache
+    private volatile String cachedInstallationToken;
+    private volatile Instant tokenExpiry = Instant.EPOCH;
+    private volatile long cachedInstallationId;
+    private static final Duration TOKEN_CACHE_TTL = Duration.ofMinutes(55);
 
-            JsonObject repoOwner = repo.getAsJsonObject("owner");
-            if (repoOwner == null) {
-                return Mono.error(new IllegalArgumentException("Missing repository.owner in webhook payload"));
-            }
-
-            String owner = repoOwner.get("login").getAsString();
-            String repoName = repo.get("name").getAsString();
-            int prNumber = pr.get("number").getAsInt();
-            String title = pr.get("title").getAsString();
-            String description = pr.has("body") && !pr.get("body").isJsonNull() ? pr.get("body").getAsString() : "";
-            JsonObject prUser = pr.has("user") && !pr.get("user").isJsonNull() ? pr.getAsJsonObject("user") : null;
-            String authorLogin = prUser != null && prUser.has("login") && !prUser.get("login").isJsonNull()
-                    ? prUser.get("login").getAsString() : "unknown";
-
-            JsonObject base = pr.getAsJsonObject("base");
-            JsonObject head = pr.getAsJsonObject("head");
-            if (base == null || head == null) {
-                return Mono.error(new IllegalArgumentException("Missing pull_request.base or pull_request.head in webhook payload"));
-            }
-
-            String baseRef = base.get("ref").getAsString();
-            String headRef = head.get("ref").getAsString();
-            String commitSha = head.get("sha").getAsString();
-
-            return fetchDiff(owner, repoName, prNumber)
-                    .map(diff -> PullRequestContext.builder()
-                            .owner(owner)
-                            .repo(repoName)
-                            .prNumber(prNumber)
-                            .title(title)
-                            .description(description)
-                            .authorLogin(authorLogin)
-                            .baseRef(baseRef)
-                            .headRef(headRef)
-                            .commitSha(commitSha)
-                            .build());
-        } catch (Exception e) {
-            log.error("Error parsing PR data for delivery", e);
-            return Mono.error(e);
+    /**
+     * Parse PR metadata from webhook payload (no API calls).
+     * Extracts installation ID for subsequent authenticated calls.
+     */
+    public PullRequestContext fetchPullRequestContext(JsonObject prData) {
+        JsonObject repo = prData.getAsJsonObject("repository");
+        JsonObject pr = prData.getAsJsonObject("pull_request");
+        if (repo == null || pr == null) {
+            throw new IllegalArgumentException("Missing repository or pull_request in webhook payload");
         }
+
+        JsonObject repoOwner = repo.getAsJsonObject("owner");
+        if (repoOwner == null) {
+            throw new IllegalArgumentException("Missing repository.owner in webhook payload");
+        }
+
+        // Extract installation ID from webhook payload
+        long installationId = 0;
+        JsonObject installation = prData.getAsJsonObject("installation");
+        if (installation != null && installation.has("id") && !installation.get("id").isJsonNull()) {
+            installationId = installation.get("id").getAsLong();
+        }
+
+        String owner = repoOwner.get("login").getAsString();
+        String repoName = repo.get("name").getAsString();
+        int prNumber = pr.get("number").getAsInt();
+        String title = pr.get("title").getAsString();
+        String description = pr.has("body") && !pr.get("body").isJsonNull() ? pr.get("body").getAsString() : "";
+        JsonObject prUser = pr.has("user") && !pr.get("user").isJsonNull() ? pr.getAsJsonObject("user") : null;
+        String authorLogin = prUser != null && prUser.has("login") && !prUser.get("login").isJsonNull()
+                ? prUser.get("login").getAsString() : "unknown";
+
+        JsonObject base = pr.getAsJsonObject("base");
+        JsonObject head = pr.getAsJsonObject("head");
+        if (base == null || head == null) {
+            throw new IllegalArgumentException("Missing pull_request.base or pull_request.head in webhook payload");
+        }
+
+        String baseRef = base.get("ref").getAsString();
+        String headRef = head.get("ref").getAsString();
+        String commitSha = head.get("sha").getAsString();
+
+        return PullRequestContext.builder()
+                .owner(owner)
+                .repo(repoName)
+                .prNumber(prNumber)
+                .title(title)
+                .description(description)
+                .authorLogin(authorLogin)
+                .baseRef(baseRef)
+                .headRef(headRef)
+                .commitSha(commitSha)
+                .installationId(installationId)
+                .build();
     }
 
-    public Mono<String> fetchDiff(String owner, String repo, int prNumber) {
+    /**
+     * Exchange the App JWT for an installation access token.
+     * Cached per installation ID for 55 minutes (tokens expire after 1 hour).
+     */
+    public Mono<String> getInstallationToken(long installationId) {
+        if (installationId <= 0) {
+            return Mono.error(new IllegalArgumentException("Invalid installation ID: " + installationId));
+        }
+
+        // Return cached token if still valid for this installation
+        if (installationId == cachedInstallationId
+                && Instant.now().isBefore(tokenExpiry)
+                && cachedInstallationToken != null) {
+            return Mono.just(cachedInstallationToken);
+        }
+
+        String url = gitHubProperties.getApiUrl() + "/app/installations/" + installationId + "/access_tokens";
+
+        return webClient.post()
+                .uri(url)
+                .header("Authorization", "Bearer " + jwtGenerator.generateAppToken())
+                .header("Accept", "application/vnd.github.v3+json")
+                .retrieve()
+                .bodyToMono(String.class)
+                .map(response -> {
+                    try {
+                        JsonObject json = gson.fromJson(response, JsonObject.class);
+                        String token = json.get("token").getAsString();
+                        cachedInstallationToken = token;
+                        cachedInstallationId = installationId;
+                        tokenExpiry = Instant.now().plus(TOKEN_CACHE_TTL);
+                        log.info("Obtained installation access token (cached until {})", tokenExpiry);
+                        return token;
+                    } catch (Exception e) {
+                        log.error("Failed to parse installation token response", e);
+                        throw new RuntimeException("Failed to get installation token", e);
+                    }
+                })
+                .doOnError(e -> log.error("Error fetching installation token for installation {}", installationId, e));
+    }
+
+    /**
+     * Fetch unified diff for a PR using installation token auth.
+     */
+    public Mono<String> fetchDiff(String owner, String repo, int prNumber, long installationId) {
         String url = String.format("%s/repos/%s/%s/pulls/%d",
                 gitHubProperties.getApiUrl(), owner, repo, prNumber);
 
-        return webClient.get()
-                .uri(url)
-                .header("Accept", "application/vnd.github.v3.diff")
-                .header("Authorization", "Bearer " + jwtGenerator.generateAppToken())
-                .retrieve()
-                .bodyToMono(String.class)
+        return getInstallationToken(installationId)
+                .flatMap(token -> webClient.get()
+                        .uri(url)
+                        .header("Accept", "application/vnd.github.v3.diff")
+                        .header("Authorization", "Bearer " + token)
+                        .retrieve()
+                        .bodyToMono(String.class))
                 .doOnError(e -> log.error("Error fetching diff for {}/{}/PR#{}", owner, repo, prNumber, e));
     }
 
     /**
-     * Posts a PR review with an optional summary body and inline comments.
-     * Uses the GitHub PR Review API which groups everything into a single review event.
-     *
-     * @param owner    repo owner
-     * @param repo     repo name
-     * @param prNumber PR number
-     * @param body     summary body text (markdown)
-     * @param event    REVIEW_EVENT: "APPROVE", "REQUEST_CHANGES", or "COMMENT"
-     * @param comments list of inline comments (can be empty)
+     * Post a PR review with summary body and optional inline comments.
      */
     public Mono<Void> submitReview(String owner, String repo, int prNumber,
-                                    String body, String event, List<ReviewComment> comments) {
+                                    String body, String event, List<ReviewComment> comments,
+                                    long installationId) {
         String url = String.format("%s/repos/%s/%s/pulls/%d/reviews",
                 gitHubProperties.getApiUrl(), owner, repo, prNumber);
 
@@ -113,7 +165,6 @@ public class GitHubApiClient {
                 JsonObject comment = new JsonObject();
                 comment.addProperty("path", c.getPath());
                 comment.addProperty("body", c.getBody());
-                // Use line for both single-line and multi-line (end of range)
                 if (c.getLine() > 0) {
                     comment.addProperty("line", c.getLine());
                     comment.addProperty("side", c.getSide() != null ? c.getSide() : "RIGHT");
@@ -126,32 +177,37 @@ public class GitHubApiClient {
             reviewBody.add("comments", commentArray);
         }
 
-        return webClient.post()
-                .uri(url)
-                .header("Authorization", "Bearer " + jwtGenerator.generateAppToken())
-                .header("Accept", "application/vnd.github.v3+json")
-                .bodyValue(reviewBody.toString())
-                .retrieve()
-                .toBodilessEntity()
-                .then()
+        return getInstallationToken(installationId)
+                .flatMap(token -> webClient.post()
+                        .uri(url)
+                        .header("Authorization", "Bearer " + token)
+                        .header("Accept", "application/vnd.github.v3+json")
+                        .bodyValue(reviewBody.toString())
+                        .retrieve()
+                        .toBodilessEntity()
+                        .then())
                 .doOnError(e -> log.error("Error submitting review for {}/{}/PR#{}", owner, repo, prNumber, e));
     }
 
-    public Mono<Void> postComment(String owner, String repo, int prNumber, String body) {
+    /**
+     * Post a regular issue comment on a PR.
+     */
+    public Mono<Void> postComment(String owner, String repo, int prNumber, String body, long installationId) {
         String url = String.format("%s/repos/%s/%s/issues/%d/comments",
                 gitHubProperties.getApiUrl(), owner, repo, prNumber);
 
         JsonObject comment = new JsonObject();
         comment.addProperty("body", body);
 
-        return webClient.post()
-                .uri(url)
-                .header("Authorization", "Bearer " + jwtGenerator.generateAppToken())
-                .header("Accept", "application/vnd.github.v3+json")
-                .bodyValue(comment.toString())
-                .retrieve()
-                .toBodilessEntity()
-                .then()
+        return getInstallationToken(installationId)
+                .flatMap(token -> webClient.post()
+                        .uri(url)
+                        .header("Authorization", "Bearer " + token)
+                        .header("Accept", "application/vnd.github.v3+json")
+                        .bodyValue(comment.toString())
+                        .retrieve()
+                        .toBodilessEntity()
+                        .then())
                 .doOnError(e -> log.error("Error posting comment for {}/{}/PR#{}", owner, repo, prNumber, e));
     }
 }

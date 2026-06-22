@@ -18,19 +18,21 @@ import static org.mockito.Mockito.when;
 
 class ReviewPublisherTest {
 
+    private static final long TEST_INSTALLATION_ID = 12345L;
+
     @Test
     void publishesNoIssuesReviewWhenNoFindings() {
         GitHubApiClient client = Mockito.mock(GitHubApiClient.class);
-        when(client.submitReview(anyString(), anyString(), anyInt(), anyString(), anyString(), anyList()))
+        when(client.submitReview(anyString(), anyString(), anyInt(), anyString(), anyString(), anyList(), anyLong()))
                 .thenReturn(Mono.empty());
 
         ReviewPublisher publisher = new ReviewPublisher(client);
-        publisher.publishReview("owner", "repo", 1, List.of()).block();
+        publisher.publishReview("owner", "repo", 1, List.of(), TEST_INSTALLATION_ID).block();
 
         ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
         verify(client).submitReview(
                 eq("owner"), eq("repo"), eq(1),
-                bodyCaptor.capture(), eq("COMMENT"), anyList());
+                bodyCaptor.capture(), eq("COMMENT"), anyList(), eq(TEST_INSTALLATION_ID));
         String body = bodyCaptor.getValue();
         assertTrue(body.contains("No issues found"));
     }
@@ -38,7 +40,7 @@ class ReviewPublisherTest {
     @Test
     void publishesFormattedReviewWhenFindingsPresent() {
         GitHubApiClient client = Mockito.mock(GitHubApiClient.class);
-        when(client.submitReview(anyString(), anyString(), anyInt(), anyString(), anyString(), anyList()))
+        when(client.submitReview(anyString(), anyString(), anyInt(), anyString(), anyString(), anyList(), anyLong()))
                 .thenReturn(Mono.empty());
 
         ReviewPublisher publisher = new ReviewPublisher(client);
@@ -56,13 +58,13 @@ class ReviewPublisherTest {
                 .precedenceScore(100)
                 .build();
 
-        publisher.publishReview("owner", "repo", 1, List.of(finding)).block();
+        publisher.publishReview("owner", "repo", 1, List.of(finding), TEST_INSTALLATION_ID).block();
 
         ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<List<ReviewComment>> commentsCaptor = ArgumentCaptor.forClass(List.class);
         verify(client).submitReview(
                 eq("owner"), eq("repo"), eq(1),
-                bodyCaptor.capture(), eq("COMMENT"), commentsCaptor.capture());
+                bodyCaptor.capture(), eq("COMMENT"), commentsCaptor.capture(), eq(TEST_INSTALLATION_ID));
 
         // Summary body should contain overall structure
         String body = bodyCaptor.getValue();
@@ -81,21 +83,21 @@ class ReviewPublisherTest {
     @Test
     void autoApprovesWhenNoFindingsAndFlagSet() {
         GitHubApiClient client = Mockito.mock(GitHubApiClient.class);
-        when(client.submitReview(anyString(), anyString(), anyInt(), anyString(), anyString(), anyList()))
+        when(client.submitReview(anyString(), anyString(), anyInt(), anyString(), anyString(), anyList(), anyLong()))
                 .thenReturn(Mono.empty());
 
         ReviewPublisher publisher = new ReviewPublisher(client);
-        publisher.publishReview("owner", "repo", 1, List.of(), true).block();
+        publisher.publishReview("owner", "repo", 1, List.of(), true, TEST_INSTALLATION_ID).block();
 
         verify(client).submitReview(
                 eq("owner"), eq("repo"), eq(1),
-                anyString(), eq("APPROVE"), anyList());
+                anyString(), eq("APPROVE"), anyList(), eq(TEST_INSTALLATION_ID));
     }
 
     @Test
     void doesNotCreateInlineCommentForFindingWithoutLineNumber() {
         GitHubApiClient client = Mockito.mock(GitHubApiClient.class);
-        when(client.submitReview(anyString(), anyString(), anyInt(), anyString(), anyString(), anyList()))
+        when(client.submitReview(anyString(), anyString(), anyInt(), anyString(), anyString(), anyList(), anyLong()))
                 .thenReturn(Mono.empty());
 
         ReviewPublisher publisher = new ReviewPublisher(client);
@@ -112,12 +114,12 @@ class ReviewPublisherTest {
                 .precedenceScore(100)
                 .build();
 
-        publisher.publishReview("owner", "repo", 1, List.of(finding)).block();
+        publisher.publishReview("owner", "repo", 1, List.of(finding), TEST_INSTALLATION_ID).block();
 
         ArgumentCaptor<List<ReviewComment>> commentsCaptor = ArgumentCaptor.forClass(List.class);
         verify(client).submitReview(
                 eq("owner"), eq("repo"), eq(1),
-                anyString(), eq("COMMENT"), commentsCaptor.capture());
+                anyString(), eq("COMMENT"), commentsCaptor.capture(), eq(TEST_INSTALLATION_ID));
         assertTrue(commentsCaptor.getValue().isEmpty(), "No inline comments for findings without line numbers");
     }
 }

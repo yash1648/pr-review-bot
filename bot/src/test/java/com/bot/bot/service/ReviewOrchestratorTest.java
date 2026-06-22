@@ -53,10 +53,12 @@ class ReviewOrchestratorTest {
                 .prNumber(1)
                 .title("title")
                 .description("description")
+                .installationId(12345L)
                 .build();
 
-        when(gitHubApiClient.fetchPullRequestContext(any())).thenReturn(Mono.just(prContext));
-        when(gitHubApiClient.fetchDiff("owner", "repo", 1)).thenReturn(Mono.just("diff"));
+        // fetchPullRequestContext is now synchronous (no Mono)
+        when(gitHubApiClient.fetchPullRequestContext(any())).thenReturn(prContext);
+        when(gitHubApiClient.fetchDiff("owner", "repo", 1, 12345L)).thenReturn(Mono.just("diff"));
         when(repoConfigLoader.loadConfig("owner", "repo")).thenReturn(Mono.just(new ReviewConfig()));
 
         ChangeChunk chunk = ChangeChunk.builder()
@@ -99,8 +101,8 @@ class ReviewOrchestratorTest {
 
         List<Finding> merged = List.of(heuristicFinding, llmFinding);
         when(findingMerger.mergeAndRank(any())).thenReturn(merged);
-        // Match the 7-arg publishReview call
-        when(reviewPublisher.publishReview(anyString(), anyString(), anyInt(), anyList(), anyBoolean(), anyBoolean()))
+        // Match the 8-arg publishReview call (with installationId)
+        when(reviewPublisher.publishReview(anyString(), anyString(), anyInt(), anyList(), anyBoolean(), anyBoolean(), anyLong()))
                 .thenReturn(Mono.empty());
 
         JsonObject webhookData = new JsonObject();

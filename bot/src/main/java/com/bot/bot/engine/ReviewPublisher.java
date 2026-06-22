@@ -17,18 +17,20 @@ import java.util.stream.Collectors;
 public class ReviewPublisher {
     private final GitHubApiClient gitHubApiClient;
 
-    public Mono<Void> publishReview(String owner, String repo, int prNumber, List<Finding> findings) {
-        return publishReview(owner, repo, prNumber, findings, false);
-    }
-
     public Mono<Void> publishReview(String owner, String repo, int prNumber,
-                                     List<Finding> findings, boolean autoApprove) {
-        return publishReview(owner, repo, prNumber, findings, autoApprove, true);
+                                     List<Finding> findings, long installationId) {
+        return publishReview(owner, repo, prNumber, findings, false, true, installationId);
     }
 
     public Mono<Void> publishReview(String owner, String repo, int prNumber,
                                      List<Finding> findings, boolean autoApprove,
-                                     boolean inlineCommentsEnabled) {
+                                     long installationId) {
+        return publishReview(owner, repo, prNumber, findings, autoApprove, true, installationId);
+    }
+
+    public Mono<Void> publishReview(String owner, String repo, int prNumber,
+                                     List<Finding> findings, boolean autoApprove,
+                                     boolean inlineCommentsEnabled, long installationId) {
         if (findings == null) findings = new ArrayList<>();
 
         // Build inline comments from findings with precise file+line info
@@ -52,7 +54,7 @@ public class ReviewPublisher {
                     owner, repo, prNumber, findings.size(), inlineComments.size());
         }
 
-        return gitHubApiClient.submitReview(owner, repo, prNumber, summary, event, inlineComments);
+        return gitHubApiClient.submitReview(owner, repo, prNumber, summary, event, inlineComments, installationId);
     }
 
     /**

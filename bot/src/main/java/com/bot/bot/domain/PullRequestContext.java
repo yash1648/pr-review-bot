@@ -19,4 +19,5 @@ public class PullRequestContext {
     private String baseRef;
     private String headRef;
     private String commitSha;
+    private long installationId;
 }
