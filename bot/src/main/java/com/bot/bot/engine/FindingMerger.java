@@ -12,40 +12,48 @@ import java.util.stream.Collectors;
 public class FindingMerger {
 
     public List<Finding> mergeAndRank(List<Finding> findings) {
+        if (findings == null || findings.isEmpty()) {
+            return new ArrayList<>();
+        }
+
         log.debug("Merging and ranking {} findings", findings.size());
 
-        // Deduplicate similar findings
-        Map<String, Finding> merged = new HashMap<>();
+        // Deduplicate similar findings by filePath:lineNumber:category
+        Map<String, Finding> merged = new LinkedHashMap<>();
 
         for (Finding finding : findings) {
+            if (finding == null) continue;
+
             String key = generateKey(finding);
 
-            if (merged.containsKey(key)) {
-                // Merge with existing finding - keep the one with higher confidence
-                Finding existing = merged.get(key);
-                if (finding.getConfidence() > existing.getConfidence()) {
-                    merged.put(key, finding);
-                }
-            } else {
+            Finding existing = merged.get(key);
+            if (existing == null) {
+                merged.put(key, finding);
+            } else if (finding.getConfidence() > existing.getConfidence()) {
+                // Keep the one with higher confidence
                 merged.put(key, finding);
             }
         }
 
         // Sort by precedence and severity
         return merged.values().stream()
+                .filter(Objects::nonNull)
                 .sorted(Comparator
-                        .comparingInt((Finding f) -> -f.getPrecedenceScore()) // Higher score first
+                        .comparingInt((Finding f) -> -f.getPrecedenceScore())
                         .thenComparing(f -> severityToInt(f.getSeverity()), Comparator.reverseOrder())
-                        .thenComparingDouble(f -> -f.getConfidence()) // Higher confidence first
+                        .thenComparingDouble(f -> -f.getConfidence())
                 )
                 .collect(Collectors.toList());
     }
 
     private String generateKey(Finding finding) {
-        return String.format("%s:%d:%s", finding.getFilePath(), finding.getLineNumber(), finding.getCategory());
+        String filePath = finding.getFilePath() != null ? finding.getFilePath() : "";
+        String category = finding.getCategory() != null ? finding.getCategory() : "";
+        return String.format("%s:%d:%s", filePath, finding.getLineNumber(), category);
     }
 
     private int severityToInt(String severity) {
+        if (severity == null) return -1;
         return switch (severity) {
             case "CRITICAL" -> 4;
             case "HIGH" -> 3;

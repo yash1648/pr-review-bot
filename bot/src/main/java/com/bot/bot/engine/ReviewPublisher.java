@@ -17,12 +17,12 @@ public class ReviewPublisher {
     private final GitHubApiClient gitHubApiClient;
 
     public Mono<Void> publishReview(String owner, String repo, int prNumber, List<Finding> findings) {
-        log.info("Publishing review for {}/{}/PR#{} with {} findings", owner, repo, prNumber, findings.size());
-
-        if (findings.isEmpty()) {
+        if (findings == null || findings.isEmpty()) {
+            log.info("No issues found for {}/{}/PR#{}", owner, repo, prNumber);
             return gitHubApiClient.postComment(owner, repo, prNumber, "✅ No issues found!");
         }
 
+        log.info("Publishing review for {}/{}/PR#{} with {} findings", owner, repo, prNumber, findings.size());
         String reviewBody = formatReview(findings);
         return gitHubApiClient.postComment(owner, repo, prNumber, reviewBody);
     }
@@ -33,10 +33,15 @@ public class ReviewPublisher {
 
         // Group by severity
         Map<String, List<Finding>> bySeverity = findings.stream()
-                .collect(Collectors.groupingBy(Finding::getSeverity));
+                .filter(Objects::nonNull)
+                .collect(Collectors.groupingBy(
+                        f -> f.getSeverity() != null ? f.getSeverity() : "UNKNOWN",
+                        LinkedHashMap::new,
+                        Collectors.toList()
+                ));
 
         for (String severity : List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO")) {
-            List<Finding> severityFindings = bySeverity.getOrDefault(severity, new ArrayList<>());
+            List<Finding> severityFindings = bySeverity.getOrDefault(severity, List.of());
 
             if (!severityFindings.isEmpty()) {
                 String emoji = switch (severity) {
@@ -47,19 +52,28 @@ public class ReviewPublisher {
                     default -> "ℹ️";
                 };
 
-                sb.append("### ").append(emoji).append(" ").append(severity).append(" (").append(severityFindings.size()).append(")\n\n");
+                sb.append("### ").append(emoji).append(" ").append(severity)
+                        .append(" (").append(severityFindings.size()).append(")\n\n");
 
                 for (Finding finding : severityFindings) {
-                    sb.append("- **").append(finding.getCategory()).append("** in `").append(finding.getFilePath()).append(":")
-                            .append(finding.getLineNumber()).append("`\n");
-                    sb.append("  - ").append(finding.getMessage()).append("\n");
+                    String filePath = finding.getFilePath() != null ? finding.getFilePath() : "(unknown)";
+                    String category = finding.getCategory() != null ? finding.getCategory() : "GENERAL";
+                    String message = finding.getMessage() != null ? finding.getMessage() : "";
+                    String suggestion = finding.getSuggestion();
+                    String source = finding.getSource() != null ? finding.getSource() : "UNKNOWN";
 
-                    if (finding.getSuggestion() != null && !finding.getSuggestion().isEmpty()) {
-                        sb.append("  - 💡 Suggestion: ").append(finding.getSuggestion()).append("\n");
+                    sb.append("- **").append(category).append("** in `").append(filePath).append(":")
+                            .append(finding.getLineNumber()).append("`\n");
+                    sb.append("  - ").append(message).append("\n");
+
+                    if (suggestion != null && !suggestion.isEmpty()) {
+                        sb.append("  - 💡 Suggestion: ").append(suggestion).append("\n");
                     }
 
-                    sb.append("  - Source: ").append(finding.getSource())
-                            .append(" (Confidence: ").append(String.format("%.0f%%", finding.getConfidence() * 100)).append(")\n\n");
+                    sb.append("  - Source: ").append(source)
+                            .append(" (Confidence: ")
+                            .append(String.format("%.0f%%", Math.min(1.0, Math.max(0.0, finding.getConfidence())) * 100))
+                            .append(")\n\n");
                 }
             }
         }

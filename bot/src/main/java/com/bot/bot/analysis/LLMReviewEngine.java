@@ -61,6 +61,11 @@ public class LLMReviewEngine {
      * Build a comprehensive prompt for the LLM with context.
      */
     private String buildPrompt(ChangeChunk chunk, PullRequestContext prContext) {
+        String added = chunk.getAddedLines().isEmpty()
+                ? "(none)" : String.join("\n", chunk.getAddedLines());
+        String removed = chunk.getRemovedLines().isEmpty()
+                ? "(none)" : String.join("\n", chunk.getRemovedLines());
+
         return String.format(
                 """
                 You are an expert code reviewer. Analyze the following code change and provide specific, actionable feedback.
@@ -68,7 +73,10 @@ public class LLMReviewEngine {
                 File: %s
                 Change Type: %s
                 
-                Changed Code:
+                Added Lines (new code):
+                %s
+                
+                Removed Lines (deleted code):
                 %s
                 
                 Context:
@@ -86,7 +94,8 @@ public class LLMReviewEngine {
                 """,
                 chunk.getFilePath(),
                 chunk.getChangeType(),
-                String.join("\n", chunk.getAddedLines()),
+                added,
+                removed,
                 chunk.getContext(),
                 prContext.getTitle(),
                 prContext.getDescription() != null ? prContext.getDescription() : "No description"

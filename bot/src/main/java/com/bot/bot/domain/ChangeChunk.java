@@ -4,6 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import java.util.ArrayList;
 import java.util.List;
 
 @Data
@@ -15,9 +16,13 @@ public class ChangeChunk {
     private String fileType;
     private int startLine;
     private int endLine;
-    private List<String> addedLines;
-    private List<String> removedLines;
+
+    @Builder.Default
+    private List<String> addedLines = new ArrayList<>();
+
+    @Builder.Default
+    private List<String> removedLines = new ArrayList<>();
+
     private String changeType; // ADDED, MODIFIED, DELETED
     private String context; // surrounding code context
 }
-

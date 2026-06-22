@@ -4,7 +4,6 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import java.util.List;
 
 @Data
 @Builder
@@ -20,5 +19,4 @@ public class PullRequestContext {
     private String baseRef;
     private String headRef;
     private String commitSha;
-    private List<ChangeChunk> changeChunks;
 }

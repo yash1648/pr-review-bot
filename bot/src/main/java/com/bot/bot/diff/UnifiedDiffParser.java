@@ -111,6 +111,7 @@ public class UnifiedDiffParser {
                 .filePath(filePath)
                 .fileType(getFileType(filePath))
                 .startLine(startLine)
+                .endLine(startLine + addedLines.size())
                 .addedLines(new ArrayList<>(addedLines))
                 .removedLines(new ArrayList<>(removedLines))
                 .changeType(changeType)

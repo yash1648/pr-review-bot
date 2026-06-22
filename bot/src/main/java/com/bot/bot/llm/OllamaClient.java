@@ -58,19 +58,5 @@ public class OllamaClient {
                 });
     }
 
-    public boolean isAvailable() {
-        try {
-            String healthUrl = llmProperties.getBaseUrl() + "/api/tags";
-            webClient.get()
-                    .uri(healthUrl)
-                    .retrieve()
-                    .toBodilessEntity()
-                    .block(Duration.ofSeconds(5));
-            return true;
-        } catch (Exception e) {
-            log.debug("LLM service not available", e);
-            return false;
-        }
-    }
 }
 
