@@ -3,7 +3,7 @@ package com.bot.bot.analysis;
 import com.bot.bot.domain.ChangeChunk;
 import com.bot.bot.domain.Finding;
 import com.bot.bot.domain.PullRequestContext;
-import com.bot.bot.llm.OllamaClient;
+import com.bot.bot.llm.LLMClient;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import reactor.core.publisher.Mono;
@@ -18,7 +18,7 @@ class LLMReviewEngineTest {
 
     @Test
     void returnsFindingsBasedOnLlmResponse() {
-        OllamaClient client = Mockito.mock(OllamaClient.class);
+        LLMClient client = Mockito.mock(LLMClient.class);
         Mockito.when(client.generateCodeReview(Mockito.anyString()))
                 .thenReturn(Mono.just("critical security issue detected"));
 
@@ -49,7 +49,7 @@ class LLMReviewEngineTest {
 
     @Test
     void returnsEmptyListWhenLlmErrors() {
-        OllamaClient client = Mockito.mock(OllamaClient.class);
+        LLMClient client = Mockito.mock(LLMClient.class);
         Mockito.when(client.generateCodeReview(Mockito.anyString()))
                 .thenReturn(Mono.error(new RuntimeException("error")));
 

@@ -325,10 +325,12 @@ spec:
 | `GITHUB_APP_ID` | Yes | GitHub App ID |
 | `GITHUB_WEBHOOK_SECRET` | Yes | Strong random secret (32+ characters) |
 | `GITHUB_PRIVATE_KEY_PATH` | No | Path to private key (default: `certs/private-key.pem`) |
-| `LLM_BASE_URL` | No | Ollama base URL (default: `http://localhost:11434`) |
+| `LLM_PROVIDER` | No | LLM provider (default: `ollama`). Set to `nvidia-nim` for NVIDIA NIM |
+| `LLM_BASE_URL` | No | Provider API base URL (default: `http://localhost:11434`) |
 | `LLM_MODEL` | No | Model name (default: `qwen2.5-coder:7b`) |
 | `LLM_TIMEOUT_SECONDS` | No | LLM request timeout (default: `60`) |
 | `LLM_ENABLED` | No | Enable LLM reviews (default: `true`) |
+| `LLM_API_KEY` | No | API key for NVIDIA NIM (`nvapi-...`). Required for hosted API |
 | `HEURISTICS_ENABLED` | No | Enable heuristic checks (default: `true`) |
 | `AUTO_APPROVE` | No | Auto-approve PRs passing review (default: `false`) |
 | `INLINE_COMMENTS` | No | Post inline review comments (default: `true`) |

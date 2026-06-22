@@ -76,8 +76,10 @@ PR Review Bot is a Spring Boot 4.0.2 application that automates code reviews for
 **Responsibility**: Contextual, intelligent code analysis using local LLMs.
 
 **Key Classes:**
-- `OllamaClient`: HTTP client for Ollama API (`POST /api/generate`). Uses `WebClient` with configurable model, temperature, and timeout from `LLMProperties`.
-- `LLMReviewEngine`: Constructs prompts with diff context and file metadata, invokes `OllamaClient`, and parses structured JSON output into `Finding` objects. No separate `ReviewPromptBuilder` class — prompt construction is internal to this engine.
+- `LLMClient` (interface): Common contract for all LLM providers — `generateCodeReview(String) -> Mono<String>`.
+- `OllamaClient`: Implements `LLMClient` for Ollama's `/api/generate` endpoint. Active when `LLM_PROVIDER=ollama` (default).
+- `NvidiaNimClient`: Implements `LLMClient` for NVIDIA NIM's OpenAI-compatible `/v1/chat/completions` endpoint. Active when `LLM_PROVIDER=nvidia-nim`. Supports Bearer token auth via `LLM_API_KEY`.
+- `LLMReviewEngine`: Constructs prompts with diff context and file metadata, invokes the active `LLMClient`, and parses structured text into `Finding` objects. No separate `ReviewPromptBuilder` class — prompt construction is internal to this engine.
 
 **Prompt Strategy:**
 - Include surrounding file context
@@ -86,8 +88,11 @@ PR Review Bot is a Spring Boot 4.0.2 application that automates code reviews for
 - Instruct to focus on bugs and security, ignore style
 
 **Configuration:**
-- Model selection via `PR_REVIEW_LLM_MODEL` env var or `application.yaml`
+- Provider selection via `LLM_PROVIDER` env var (`ollama` or `nvidia-nim`)
+- Model selection via `LLM_MODEL` env var
 - Recommended models: `qwen2.5-coder:7b`, `deepseek-coder:6.7b`, `codellama:7b-code`
+- NVIDIA NIM default base URL: `http://localhost:8000` (self-hosted) or `https://integrate.api.nvidia.com/v1` (hosted API)
+- NVIDIA NIM requires `LLM_API_KEY` for the hosted API (starts with `nvapi-`)
 
 ### 5. Finding Merger
 

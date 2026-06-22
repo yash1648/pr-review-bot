@@ -3,7 +3,7 @@ package com.bot.bot.analysis;
 import com.bot.bot.domain.ChangeChunk;
 import com.bot.bot.domain.Finding;
 import com.bot.bot.domain.PullRequestContext;
-import com.bot.bot.llm.OllamaClient;
+import com.bot.bot.llm.LLMClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -18,7 +18,7 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class LLMReviewEngine {
-    private final OllamaClient ollamaClient;
+    private final LLMClient llmClient;
 
     /**
      * Analyze code chunks using LLM for contextual review.
@@ -49,7 +49,7 @@ public class LLMReviewEngine {
     private Mono<List<Finding>> generateReviewForChunk(ChangeChunk chunk, PullRequestContext prContext) {
         String prompt = buildPrompt(chunk, prContext);
 
-        return ollamaClient.generateCodeReview(prompt)
+        return llmClient.generateCodeReview(prompt)
                 .map(response -> parseReviewResponse(response, chunk))
                 .onErrorResume(e -> {
                     log.warn("Error generating review for chunk {}", chunk.getFilePath(), e);

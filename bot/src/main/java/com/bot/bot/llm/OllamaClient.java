@@ -3,8 +3,8 @@ package com.bot.bot.llm;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.bot.bot.config.LLMProperties;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
@@ -13,7 +13,8 @@ import java.time.Duration;
 
 @Slf4j
 @Service
-public class OllamaClient {
+@ConditionalOnProperty(name = "llm.provider", havingValue = "ollama", matchIfMissing = true)
+public class OllamaClient implements LLMClient {
     private final LLMProperties llmProperties;
     private final WebClient webClient;
     private final Gson gson;
@@ -24,6 +25,7 @@ public class OllamaClient {
         this.gson = gson;
     }
 
+    @Override
     public Mono<String> generateCodeReview(String prompt) {
         if (!llmProperties.isEnabled()) {
             return Mono.just("LLM review disabled");

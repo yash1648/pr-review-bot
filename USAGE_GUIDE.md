@@ -192,10 +192,12 @@ if (user != null && user.getProfile() != null) {
 | `GITHUB_CLIENT_ID` | Yes | — | GitHub App client ID |
 | `GITHUB_WEBHOOK_SECRET` | Yes | — | Webhook secret for HMAC verification |
 | `GITHUB_PRIVATE_KEY_PATH` | Yes | `certs/private-key.pem` | Path to the app's private key PEM file |
-| `LLM_MODEL` | No | `qwen2.5-coder:7b` | Ollama model name |
-| `LLM_BASE_URL` | No | `http://localhost:11434` | Ollama server URL |
+| `LLM_PROVIDER` | No | `ollama` | LLM provider: `ollama` or `nvidia-nim` |
+| `LLM_MODEL` | No | `qwen2.5-coder:7b` | Model name (passed to provider) |
+| `LLM_BASE_URL` | No | `http://localhost:11434` | Provider API base URL |
 | `LLM_TIMEOUT_SECONDS` | No | `60` | LLM request timeout |
 | `LLM_ENABLED` | No | `true` | Enable/disable LLM analysis |
+| `LLM_API_KEY` | No | — | API key for NVIDIA NIM (`nvapi-...`) |
 | `HEURISTICS_ENABLED` | No | `true` | Enable/disable heuristic analysis |
 | `AUTO_APPROVE` | No | `false` | Auto-approve PRs with no issues |
 | `INLINE_COMMENTS` | No | `true` | Post inline comments on diff lines |

@@ -71,11 +71,13 @@ GITHUB_CLIENT_ID=Iv1.xxxxxxxxxxxx
 GITHUB_WEBHOOK_SECRET=your-webhook-secret
 GITHUB_PRIVATE_KEY_PATH=certs/private-key.pem
 
-# Optional — defaults shown
+# LLM provider (ollama or nvidia-nim)
+LLM_PROVIDER=ollama
 LLM_MODEL=qwen2.5-coder:7b
 LLM_BASE_URL=http://localhost:11434
 LLM_TIMEOUT_SECONDS=60
 LLM_ENABLED=true
+LLM_API_KEY=
 HEURISTICS_ENABLED=true
 AUTO_APPROVE=false
 INLINE_COMMENTS=true
@@ -128,10 +130,12 @@ Create a pull request on any repository the app is installed on. The bot will:
 | `GITHUB_CLIENT_ID` | Yes | — | GitHub App Client ID |
 | `GITHUB_WEBHOOK_SECRET` | Yes | — | Webhook secret for HMAC-SHA256 verification |
 | `GITHUB_PRIVATE_KEY_PATH` | No | `certs/private-key.pem` | Path to GitHub App private key (PKCS#1 or PKCS#8) |
-| `LLM_MODEL` | No | `qwen2.5-coder:7b` | Ollama model name |
-| `LLM_BASE_URL` | No | `http://localhost:11434` | Ollama server URL |
+| `LLM_PROVIDER` | No | `ollama` | LLM provider: `ollama` or `nvidia-nim` |
+| `LLM_MODEL` | No | `qwen2.5-coder:7b` | Model name (passed to provider) |
+| `LLM_BASE_URL` | No | `http://localhost:11434` | Provider API base URL |
 | `LLM_TIMEOUT_SECONDS` | No | `60` | LLM request timeout |
 | `LLM_ENABLED` | No | `true` | Enable/disable LLM analysis |
+| `LLM_API_KEY` | No | — | API key for NVIDIA NIM (`nvapi-...`) |
 | `HEURISTICS_ENABLED` | No | `true` | Enable/disable heuristics analysis |
 | `AUTO_APPROVE` | No | `false` | Auto-approve PR if no issues found |
 | `INLINE_COMMENTS` | No | `true` | Post inline line-level comments |

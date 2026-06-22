@@ -95,10 +95,12 @@ The app reads these from the environment or a `.env` file:
 | `GITHUB_CLIENT_ID`         | yes      | —                        | GitHub App client ID               |
 | `GITHUB_WEBHOOK_SECRET`    | yes      | —                        | Webhook secret token               |
 | `GITHUB_PRIVATE_KEY_PATH`  | yes      | `certs/private-key.pem`  | Path to the App's private key      |
-| `LLM_BASE_URL`             | yes      | `http://localhost:11434`  | Ollama API base URL                |
-| `LLM_MODEL`                | no       | `qwen2.5-coder:7b`       | Ollama model name                  |
+| `LLM_PROVIDER`             | no       | `ollama`                 | LLM provider: `ollama` or `nvidia-nim` |
+| `LLM_MODEL`                | no       | `qwen2.5-coder:7b`       | Model name (passed to provider)    |
+| `LLM_BASE_URL`             | yes      | `http://localhost:11434`  | Provider API base URL              |
 | `LLM_TIMEOUT_SECONDS`      | no       | `60`                     | LLM request timeout                |
 | `LLM_ENABLED`              | no       | `true`                   | Set to `false` to disable LLM      |
+| `LLM_API_KEY`              | no       | —                        | API key for NVIDIA NIM (`nvapi-...`) |
 | `HEURISTICS_ENABLED`       | no       | `true`                   | Enable heuristic (regex) analysis  |
 | `AUTO_APPROVE`             | no       | `false`                  | Auto-approve PRs passing review    |
 | `INLINE_COMMENTS`          | no       | `true`                   | Post inline review comments        |

@@ -78,8 +78,10 @@ GITHUB_APP_ID=12345
 GITHUB_CLIENT_ID=Iv1.abcdef123456
 GITHUB_WEBHOOK_SECRET=your-webhook-secret
 GITHUB_PRIVATE_KEY_PATH=certs/private-key.pem
+LLM_PROVIDER=ollama
 LLM_MODEL=qwen2.5-coder:7b
 LLM_BASE_URL=http://localhost:11434
+LLM_API_KEY=
 ```
 
 The `.env` file is loaded automatically at startup -- no need to export variables manually. The loader checks `bot/.env` and `./.env`.
@@ -128,10 +130,12 @@ All configuration is handled via environment variables (or `.env` file):
 | `GITHUB_CLIENT_ID`        | GitHub App Client ID              | Required                     |
 | `GITHUB_WEBHOOK_SECRET`   | Webhook signature secret          | Required                     |
 | `GITHUB_PRIVATE_KEY_PATH` | Path to private key `.pem` file   | `certs/private-key.pem`      |
-| `LLM_MODEL`               | Ollama model name                 | `qwen2.5-coder:7b`           |
-| `LLM_BASE_URL`            | Ollama API base URL               | `http://localhost:11434`     |
+| `LLM_PROVIDER`            | LLM provider (`ollama` or `nvidia-nim`) | `ollama`                     |
+| `LLM_MODEL`               | Model name (passed to provider)   | `qwen2.5-coder:7b`           |
+| `LLM_BASE_URL`            | Provider API base URL             | `http://localhost:11434`     |
 | `LLM_TIMEOUT_SECONDS`     | LLM request timeout               | `60`                         |
 | `LLM_ENABLED`             | Enable/disable LLM analysis       | `true`                       |
+| `LLM_API_KEY`             | API key for NVIDIA NIM            | —                            |
 | `HEURISTICS_ENABLED`      | Enable/disable heuristic rules    | `true`                       |
 | `AUTO_APPROVE`            | Auto-approve PR when no findings  | `false`                      |
 | `INLINE_COMMENTS`         | Post inline line-level comments   | `true`                       |

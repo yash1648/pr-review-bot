@@ -118,10 +118,12 @@ INLINE_COMMENTS=true            # Add inline comments on problem lines
 HEURISTICS_ENABLED=true         # Run pattern-based analysis
 LLM_ENABLED=true                # Run LLM analysis (requires Ollama)
 
-# LLM provider (default: Ollama with qwen2.5-coder:7b)
+# LLM provider (ollama or nvidia-nim)
+LLM_PROVIDER=ollama
 LLM_MODEL=qwen2.5-coder:7b
 LLM_BASE_URL=http://localhost:11434
 LLM_TIMEOUT_SECONDS=60
+LLM_API_KEY=
 ```
 
 **2.4 Verify Configuration**

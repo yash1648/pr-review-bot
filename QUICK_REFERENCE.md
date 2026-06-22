@@ -79,9 +79,12 @@ github:
   api-url: https://api.github.com
 
 llm:
+  provider: ${LLM_PROVIDER:ollama}
   model: ${LLM_MODEL:qwen2.5-coder:7b}
   base-url: ${LLM_BASE_URL:http://localhost:11434}
+  timeout-seconds: ${LLM_TIMEOUT_SECONDS:60}
   enabled: ${LLM_ENABLED:true}
+  api-key: ${LLM_API_KEY:}
 
 app:
   heuristics-enabled: ${HEURISTICS_ENABLED:true}
