@@ -18,7 +18,8 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
 
 @Slf4j
 @Service
@@ -75,7 +76,7 @@ public class ReviewOrchestrator {
         log.debug("Starting diff analysis");
 
         // Build list of findings
-        List<Finding> findings = Collections.synchronizedList(new ArrayList<>());
+        List<Finding> findings = new ArrayList<>();
 
         // 1. Run heuristics analysis (synchronous, fast)
         if (appProperties.isHeuristicsEnabled()) {
@@ -85,23 +86,22 @@ public class ReviewOrchestrator {
             log.info("Heuristics found {} findings", heuristicFindings.size());
         }
 
-        // 2. Run LLM analysis (asynchronous, can be slow)
-        if (appProperties.isLlmEnabled()) {
-            log.debug("Running LLM analysis");
-
-            return llmReviewEngine.analyzeWithLLM(prContext, chunks)
-                    .flatMap(llmFindings -> {
-                        if (llmFindings != null && !llmFindings.isEmpty()) {
-                            findings.addAll(llmFindings);
-                            log.info("LLM found {} findings", llmFindings.size());
-                        }
-                        return publishReviewWithFindings(prContext, findings);
+        // 2. Run LLM analysis (asynchronous, can be slow) with guaranteed fallback
+        Mono<List<Finding>> llmResult = appProperties.isLlmEnabled()
+                ? llmReviewEngine.analyzeWithLLM(prContext, chunks)
+                    .onErrorResume(e -> {
+                        log.error("LLM analysis failed, continuing with heuristics only", e);
+                        return Mono.just(new ArrayList<>());
                     })
-                    .doOnError(e -> log.error("Error in LLM analysis", e));
-        } else {
-            // Skip LLM analysis, go straight to publishing
+                : Mono.just(new ArrayList<>());
+
+        return llmResult.flatMap(llmFindings -> {
+            if (llmFindings != null && !llmFindings.isEmpty()) {
+                findings.addAll(llmFindings);
+                log.info("LLM found {} findings", llmFindings.size());
+            }
             return publishReviewWithFindings(prContext, findings);
-        }
+        });
     }
 
     /**

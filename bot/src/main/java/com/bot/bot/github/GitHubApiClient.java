@@ -17,30 +17,43 @@ public class GitHubApiClient {
     private final GitHubProperties gitHubProperties;
     private final GitHubJwtGenerator jwtGenerator;
     private final WebClient webClient;
-    private final Gson gson = new Gson();
+    private final Gson gson;
 
     public Mono<PullRequestContext> fetchPullRequestContext(JsonObject prData) {
         try {
-            String owner = prData.getAsJsonObject("repository")
-                    .getAsJsonObject("owner").get("login").getAsString();
-            String repo = prData.getAsJsonObject("repository").get("name").getAsString();
-            int prNumber = prData.getAsJsonObject("pull_request").get("number").getAsInt();
-            String title = prData.getAsJsonObject("pull_request").get("title").getAsString();
-            String description = prData.getAsJsonObject("pull_request").get("body").getAsString();
-            String authorLogin = prData.getAsJsonObject("pull_request")
-                    .getAsJsonObject("user").get("login").getAsString();
+            JsonObject repo = prData.getAsJsonObject("repository");
+            JsonObject pr = prData.getAsJsonObject("pull_request");
+            if (repo == null || pr == null) {
+                return Mono.error(new IllegalArgumentException("Missing repository or pull_request in webhook payload"));
+            }
 
-            String baseRef = prData.getAsJsonObject("pull_request")
-                    .getAsJsonObject("base").getAsJsonObject("ref").get("ref").getAsString();
-            String headRef = prData.getAsJsonObject("pull_request")
-                    .getAsJsonObject("head").getAsJsonObject("ref").get("ref").getAsString();
-            String commitSha = prData.getAsJsonObject("pull_request")
-                    .getAsJsonObject("head").get("sha").getAsString();
+            JsonObject repoOwner = repo.getAsJsonObject("owner");
+            if (repoOwner == null) {
+                return Mono.error(new IllegalArgumentException("Missing repository.owner in webhook payload"));
+            }
 
-            return fetchDiff(owner, repo, prNumber)
+            String owner = repoOwner.get("login").getAsString();
+            String repoName = repo.get("name").getAsString();
+            int prNumber = pr.get("number").getAsInt();
+            String title = pr.get("title").getAsString();
+            String description = pr.get("body").getAsString();
+            String authorLogin = pr.getAsJsonObject("user").get("login").getAsString();
+
+            // GitHub webhook payload: pull_request.base.ref is a direct string, not nested
+            JsonObject base = pr.getAsJsonObject("base");
+            JsonObject head = pr.getAsJsonObject("head");
+            if (base == null || head == null) {
+                return Mono.error(new IllegalArgumentException("Missing pull_request.base or pull_request.head in webhook payload"));
+            }
+
+            String baseRef = base.get("ref").getAsString();
+            String headRef = head.get("ref").getAsString();
+            String commitSha = head.get("sha").getAsString();
+
+            return fetchDiff(owner, repoName, prNumber)
                     .map(diff -> PullRequestContext.builder()
                             .owner(owner)
-                            .repo(repo)
+                            .repo(repoName)
                             .prNumber(prNumber)
                             .title(title)
                             .description(description)
@@ -50,7 +63,7 @@ public class GitHubApiClient {
                             .commitSha(commitSha)
                             .build());
         } catch (Exception e) {
-            log.error("Error parsing PR data", e);
+            log.error("Error parsing PR data for delivery", e);
             return Mono.error(e);
         }
     }

@@ -11,6 +11,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.*;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -92,9 +93,17 @@ public class LLMReviewEngine {
         );
     }
 
+    // Patterns for severity detection with word boundaries to reduce false positives
+    private static final Pattern SEVERITY_CRITICAL = Pattern.compile(
+            "\\b(CRITICAL|DANGER|CRITICAL ISSUE)\\b.*", Pattern.CASE_INSENSITIVE);
+    private static final Pattern SEVERITY_HIGH = Pattern.compile(
+            "\\b(SEVERITY:\\s*HIGH|\\[HIGH\\]|BUG|VULNERABILITY)\\b.*", Pattern.CASE_INSENSITIVE);
+    private static final Pattern SEVERITY_MEDIUM = Pattern.compile(
+            "\\b(SEVERITY:\\s*MEDIUM|\\[MEDIUM\\]|WARNING|MEDIUM RISK)\\b.*", Pattern.CASE_INSENSITIVE);
+
     /**
      * Parse LLM response and extract findings.
-     * Simple heuristic-based parsing - can be enhanced with NLP.
+     * Uses word-boundary matching to reduce false positives from natural language.
      */
     private List<Finding> parseReviewResponse(String response, ChangeChunk chunk) {
         List<Finding> findings = new ArrayList<>();
@@ -103,49 +112,50 @@ public class LLMReviewEngine {
             return findings;
         }
 
-        // Split response into lines and look for severity keywords
+        // Split response into lines and check for severity-labeled findings
         String[] lines = response.split("\n");
 
         for (String line : lines) {
-            String lowerLine = line.toLowerCase();
+            String trimmed = line.trim();
+            if (trimmed.isEmpty()) continue;
 
-            // Detect critical issues
-            if (lowerLine.contains("critical") || lowerLine.contains("danger")) {
+            // Detect critical issues with word-boundary matching
+            if (SEVERITY_CRITICAL.matcher(trimmed).find()) {
                 findings.add(Finding.builder()
                         .id(UUID.randomUUID().toString())
                         .filePath(chunk.getFilePath())
                         .lineNumber(chunk.getStartLine())
                         .severity("CRITICAL")
                         .category("CODE_REVIEW")
-                        .message(line.trim())
+                        .message(trimmed)
                         .source("LLM")
                         .confidence(0.85)
                         .precedenceScore(700)
                         .build());
             }
             // Detect high severity issues
-            else if (lowerLine.contains("high") || lowerLine.contains("issue") || lowerLine.contains("bug")) {
+            else if (SEVERITY_HIGH.matcher(trimmed).find()) {
                 findings.add(Finding.builder()
                         .id(UUID.randomUUID().toString())
                         .filePath(chunk.getFilePath())
                         .lineNumber(chunk.getStartLine())
                         .severity("HIGH")
                         .category("CODE_REVIEW")
-                        .message(line.trim())
+                        .message(trimmed)
                         .source("LLM")
                         .confidence(0.80)
                         .precedenceScore(650)
                         .build());
             }
             // Detect medium severity issues
-            else if (lowerLine.contains("medium") || lowerLine.contains("warning") || lowerLine.contains("improve")) {
+            else if (SEVERITY_MEDIUM.matcher(trimmed).find()) {
                 findings.add(Finding.builder()
                         .id(UUID.randomUUID().toString())
                         .filePath(chunk.getFilePath())
                         .lineNumber(chunk.getStartLine())
                         .severity("MEDIUM")
                         .category("CODE_REVIEW")
-                        .message(line.trim())
+                        .message(trimmed)
                         .source("LLM")
                         .confidence(0.75)
                         .precedenceScore(600)

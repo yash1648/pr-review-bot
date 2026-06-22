@@ -11,11 +11,16 @@ import java.util.regex.Pattern;
 @Slf4j
 @Service
 public class UnifiedDiffParser {
-    private static final Pattern FILE_HEADER = Pattern.compile("^(---|\\+\\+\\+)\\s+(.*)$");
     private static final Pattern HUNK_HEADER = Pattern.compile("^@@\\s+-\\d+(?:,\\d+)?\\s+\\+(\\d+)(?:,\\d+)?\\s+@@");
-    private static final Pattern FILE_STATUS = Pattern.compile("^(---|\\+\\+\\+)\\s+([ab])/(.*)$");
+    private static final Pattern DIFF_GIT = Pattern.compile("diff --git a/(.+) b/(.+)");
+    private static final Pattern FILE_PREFIX = Pattern.compile("^---\\s+([ab]/)?(.*)$");
+    private static final Pattern PLUS_PREFIX = Pattern.compile("^\\+\\+\\+\\s+([ab]/)?(.*)$");
 
     public List<ChangeChunk> parse(String diffContent) {
+        if (diffContent == null || diffContent.isEmpty()) {
+            return new ArrayList<>();
+        }
+
         List<ChangeChunk> chunks = new ArrayList<>();
         String[] lines = diffContent.split("\n");
 
@@ -28,9 +33,16 @@ public class UnifiedDiffParser {
 
         for (String line : lines) {
             if (line.startsWith("diff --git")) {
-                // Extract filename
-                Pattern p = Pattern.compile("diff --git a/(.+) b/(.+)");
-                Matcher m = p.matcher(line);
+                // Flush previous chunk before starting new file
+                if (currentFile != null && (!addedLines.isEmpty() || !removedLines.isEmpty())) {
+                    chunks.add(buildChunk(currentFile, currentStartLine, addedLines, removedLines, changeType, context));
+                }
+                addedLines.clear();
+                removedLines.clear();
+                context.setLength(0);
+                changeType = "MODIFIED"; // Reset per file
+
+                Matcher m = DIFF_GIT.matcher(line);
                 if (m.find()) {
                     currentFile = m.group(2);
                 }
@@ -38,18 +50,16 @@ public class UnifiedDiffParser {
             }
 
             if (line.startsWith("---")) {
-                Pattern p = Pattern.compile("^---\\s+([ab]/)?(.*)$");
-                Matcher m = p.matcher(line);
-                if (m.find() && m.group(2).equals("/dev/null")) {
+                Matcher m = FILE_PREFIX.matcher(line);
+                if (m.find() && "/dev/null".equals(m.group(2))) {
                     changeType = "ADDED";
                 }
                 continue;
             }
 
             if (line.startsWith("+++")) {
-                Pattern p = Pattern.compile("^\\+\\+\\+\\s+([ab]/)?(.*)$");
-                Matcher m = p.matcher(line);
-                if (m.find() && m.group(2).equals("/dev/null")) {
+                Matcher m = PLUS_PREFIX.matcher(line);
+                if (m.find() && "/dev/null".equals(m.group(2))) {
                     changeType = "DELETED";
                 }
                 continue;
@@ -58,16 +68,7 @@ public class UnifiedDiffParser {
             if (line.startsWith("@@")) {
                 // Process previous chunk if exists
                 if (currentFile != null && (!addedLines.isEmpty() || !removedLines.isEmpty())) {
-                    ChangeChunk chunk = ChangeChunk.builder()
-                            .filePath(currentFile)
-                            .fileType(getFileType(currentFile))
-                            .startLine(currentStartLine)
-                            .addedLines(new ArrayList<>(addedLines))
-                            .removedLines(new ArrayList<>(removedLines))
-                            .changeType(changeType)
-                            .context(context.toString())
-                            .build();
-                    chunks.add(chunk);
+                    chunks.add(buildChunk(currentFile, currentStartLine, addedLines, removedLines, changeType, context));
                 }
 
                 Matcher m = HUNK_HEADER.matcher(line);
@@ -98,25 +99,29 @@ public class UnifiedDiffParser {
 
         // Don't forget the last chunk
         if (currentFile != null && (!addedLines.isEmpty() || !removedLines.isEmpty())) {
-            ChangeChunk chunk = ChangeChunk.builder()
-                    .filePath(currentFile)
-                    .fileType(getFileType(currentFile))
-                    .startLine(currentStartLine)
-                    .addedLines(addedLines)
-                    .removedLines(removedLines)
-                    .changeType(changeType)
-                    .context(context.toString())
-                    .build();
-            chunks.add(chunk);
+            chunks.add(buildChunk(currentFile, currentStartLine, addedLines, removedLines, changeType, context));
         }
 
         return chunks;
     }
 
+    private ChangeChunk buildChunk(String filePath, int startLine, List<String> addedLines,
+                                    List<String> removedLines, String changeType, StringBuilder context) {
+        return ChangeChunk.builder()
+                .filePath(filePath)
+                .fileType(getFileType(filePath))
+                .startLine(startLine)
+                .addedLines(new ArrayList<>(addedLines))
+                .removedLines(new ArrayList<>(removedLines))
+                .changeType(changeType)
+                .context(context.toString())
+                .build();
+    }
+
     private String getFileType(String filePath) {
         if (filePath == null) return "unknown";
         int lastDot = filePath.lastIndexOf('.');
-        if (lastDot > 0) {
+        if (lastDot > 0 && lastDot < filePath.length() - 1) {
             return filePath.substring(lastDot + 1);
         }
         return "unknown";

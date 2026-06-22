@@ -24,19 +24,31 @@ import java.util.Date;
 public class GitHubJwtGenerator {
     private final GitHubProperties gitHubProperties;
     private PrivateKey privateKey;
+    private String cachedToken;
+    private Instant tokenExpiry = Instant.EPOCH;
 
     public String generateAppToken() {
+        // Reuse cached token if still valid with 60s buffer
+        if (Instant.now().isBefore(tokenExpiry.minusSeconds(60))) {
+            return cachedToken;
+        }
+
         try {
             PrivateKey key = getPrivateKey();
             Instant now = Instant.now();
             Instant expiration = now.plusSeconds(600); // 10 minutes
 
-            return Jwts.builder()
+            String token = Jwts.builder()
                     .setIssuedAt(Date.from(now))
                     .setExpiration(Date.from(expiration))
                     .claim("iss", gitHubProperties.getAppId())
                     .signWith(key, SignatureAlgorithm.RS256)
                     .compact();
+
+            cachedToken = token;
+            tokenExpiry = expiration;
+
+            return token;
         } catch (Exception e) {
             log.error("Error generating JWT token", e);
             throw new RuntimeException("Failed to generate JWT token", e);
