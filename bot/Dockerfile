@@ -13,7 +13,7 @@ FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
 # Copy built application
-COPY --from=builder /build/target/pr-review-bot-1.0.0.jar app.jar
+COPY --from=builder /build/target/bot-0.0.1-SNAPSHOT.jar app.jar
 
 # Create certs directory for GitHub private key
 RUN mkdir -p certs && \

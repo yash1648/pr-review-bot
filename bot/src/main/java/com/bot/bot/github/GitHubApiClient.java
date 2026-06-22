@@ -36,8 +36,10 @@ public class GitHubApiClient {
             String repoName = repo.get("name").getAsString();
             int prNumber = pr.get("number").getAsInt();
             String title = pr.get("title").getAsString();
-            String description = pr.get("body").getAsString();
-            String authorLogin = pr.getAsJsonObject("user").get("login").getAsString();
+            String description = pr.has("body") && !pr.get("body").isJsonNull() ? pr.get("body").getAsString() : "";
+            JsonObject prUser = pr.has("user") && !pr.get("user").isJsonNull() ? pr.getAsJsonObject("user") : null;
+            String authorLogin = prUser != null && prUser.has("login") && !prUser.get("login").isJsonNull()
+                    ? prUser.get("login").getAsString() : "unknown";
 
             // GitHub webhook payload: pull_request.base.ref is a direct string, not nested
             JsonObject base = pr.getAsJsonObject("base");
@@ -79,26 +81,6 @@ public class GitHubApiClient {
                 .retrieve()
                 .bodyToMono(String.class)
                 .doOnError(e -> log.error("Error fetching diff for {}/{}/PR#{}", owner, repo, prNumber, e));
-    }
-
-    public Mono<Void> publishReview(String owner, String repo, int prNumber,
-                                    String reviewBody, String event) {
-        String url = String.format("%s/repos/%s/%s/pulls/%d/reviews",
-                gitHubProperties.getApiUrl(), owner, repo, prNumber);
-
-        JsonObject body = new JsonObject();
-        body.addProperty("body", reviewBody);
-        body.addProperty("event", event);
-
-        return webClient.post()
-                .uri(url)
-                .header("Authorization", "Bearer " + jwtGenerator.generateAppToken())
-                .header("Accept", "application/vnd.github.v3+json")
-                .bodyValue(body.toString())
-                .retrieve()
-                .toBodilessEntity()
-                .then()
-                .doOnError(e -> log.error("Error publishing review for {}/{}/PR#{}", owner, repo, prNumber, e));
     }
 
     public Mono<Void> postComment(String owner, String repo, int prNumber, String body) {

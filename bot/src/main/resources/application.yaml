@@ -1,9 +1,7 @@
-# Application configuration for the GitHub bot.
+# Application configuration for the GitHub PR Review Bot.
 spring:
   application:
     name: bot
-  webflux:
-    base-path: /
 
 server:
   port: 8080
@@ -18,12 +16,22 @@ logging:
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
 
-# GitHub Configuration
+# Actuator health endpoint
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+
+# GitHub App Configuration
 github:
   app-id: ${GITHUB_APP_ID:}
   client-id: ${GITHUB_CLIENT_ID:}
   webhook-secret: ${GITHUB_WEBHOOK_SECRET:}
-  private-key-path: ${GITHUB_PRIVATE_KEY_PATH:certs/github-app.pem}
+  private-key-path: ${GITHUB_PRIVATE_KEY_PATH:certs/private-key.pem}
   api-url: https://api.github.com
 
 # LLM Configuration
@@ -35,8 +43,5 @@ llm:
 
 # Application Configuration
 app:
-  max-diff-size-bytes: ${MAX_DIFF_SIZE_BYTES:1048576}
-  max-files-per-pr: ${MAX_FILES_PER_PR:50}
   heuristics-enabled: ${HEURISTICS_ENABLED:true}
   llm-enabled: ${LLM_ENABLED:true}
-  enable-comment-deletion: ${ENABLE_COMMENT_DELETION:false}

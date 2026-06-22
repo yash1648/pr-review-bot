@@ -21,15 +21,15 @@ public class GitHubWebhookController {
     @PostMapping("/github")
     public ResponseEntity<String> handleGitHubWebhook(
             @RequestBody String payload,
-            @RequestHeader("X-Hub-Signature-256") String signature,
+            @RequestHeader(value = "X-Hub-Signature-256", required = false) String signature,
             @RequestHeader("X-GitHub-Event") String eventType,
             @RequestHeader("X-GitHub-Delivery") String deliveryId) {
 
         log.info("Received GitHub webhook event: {} (delivery: {})", eventType, deliveryId);
 
-        // Verify webhook signature
-        if (!signatureVerifier.verifySignature(payload, signature)) {
-            log.warn("Invalid webhook signature for delivery: {}", deliveryId);
+        // Verify webhook signature (optional header = missing signature)
+        if (signature == null || !signatureVerifier.verifySignature(payload, signature)) {
+            log.warn("Invalid or missing webhook signature for delivery: {}", deliveryId);
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid signature");
         }
 
@@ -41,7 +41,17 @@ public class GitHubWebhookController {
 
         try {
             JsonObject webhookData = gson.fromJson(payload, JsonObject.class);
-            String action = webhookData.get("action").getAsString();
+            if (webhookData == null) {
+                return ResponseEntity.badRequest().body("Invalid JSON payload");
+            }
+
+            String action = webhookData.has("action") && !webhookData.get("action").isJsonNull()
+                    ? webhookData.get("action").getAsString() : null;
+
+            if (action == null) {
+                log.warn("Missing action in webhook payload for delivery: {}", deliveryId);
+                return ResponseEntity.badRequest().body("Missing action field");
+            }
 
             // Process PR opened, synchronize, or reopened
             if ("opened".equals(action) || "synchronize".equals(action) || "reopened".equals(action)) {

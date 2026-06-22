@@ -8,9 +8,6 @@ import lombok.Data;
 @Component
 @ConfigurationProperties(prefix = "app")
 public class AppProperties {
-    private long maxDiffSizeBytes = 1048576L; // 1MB
-    private int maxFilesPerPr = 50;
     private boolean heuristicsEnabled = true;
     private boolean llmEnabled = true;
-    private boolean enableCommentDeletion = false;
 }

@@ -14,7 +14,7 @@ import java.util.regex.Pattern;
 public class SecretsDetectionRule implements Rule {
     private static final Map<String, Pattern> SECRET_PATTERNS = Map.ofEntries(
             Map.entry("AWS_KEY", Pattern.compile("(?i)(?:aws_access_key_id|AKIA[0-9A-Z]{16})")),
-            Map.entry("PRIVATE_KEY", Pattern.compile("(?i)(-----BEGIN RSA PRIVATE KEY-----|-----BEGIN PRIVATE KEY----)")),
+            Map.entry("PRIVATE_KEY", Pattern.compile("(?i)(-----BEGIN RSA PRIVATE KEY-----|-----BEGIN PRIVATE KEY-----)")),
             Map.entry("PASSWORD", Pattern.compile("(?i)(?:password|passwd)\\s*[=:]\\s*['\\\"][^'\\\"]{4,}['\\\"]")),
             Map.entry("API_KEY", Pattern.compile("(?i)(?:api[_-]?key|apikey)\\s*[=:]\\s*['\\\"][^'\\\"]{10,}['\\\"]")),
             Map.entry("GITHUB_TOKEN", Pattern.compile("ghp_[A-Za-z0-9_]{36}")),
