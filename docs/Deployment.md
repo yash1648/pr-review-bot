@@ -1,44 +1,75 @@
 # Deployment Guide
 
+## Prerequisites
+
+- Java 21 (JDK for builds, JRE for runtime)
+- Docker
+- A GitHub App with `private-key.pem` installed
+- Ollama instance running the review model (`qwen2.5-coder:7b` recommended)
+
+## Configuration
+
+The bot supports two configuration layers:
+
+1. **Environment variables** -- see [Production Considerations](#production-considerations)
+2. **Repository-level YAML** -- place a `.prreview.yaml` file in the target repository to override settings per-repo
+
+```yaml
+# .prreview.yaml example
+heuristics-enabled: true
+llm-enabled: true
+auto-approve: false
+inline-comments: true
+review-summary-enabled: true
+```
+
 ## Docker Deployment
 
 ### Build Image
 
 ```bash
+cd bot
 ./mvnw clean package -DskipTests
 docker build -t pr-review-bot:latest .
 ```
 
 ### Dockerfile
 
+The project uses a multi-stage build for a smaller final image.
+
 ```dockerfile
+# Build stage
+FROM eclipse-temurin:21-jdk-alpine AS builder
+WORKDIR /build
+
+COPY pom.xml .
+COPY src src/
+
+RUN apk add --no-cache maven && \
+    mvn clean package -DskipTests
+
+# Runtime stage
 FROM eclipse-temurin:21-jre-alpine
-
-# Install dependencies
-RUN apk add --no-cache curl
-
-# Create app directory
 WORKDIR /app
 
-# Copy JAR
-COPY target/pr-review-bot-*.jar app.jar
+# Copy built application
+COPY --from=builder /build/target/bot-0.0.1-SNAPSHOT.jar app.jar
 
-# Copy certificates
-COPY certs/github-app.pem /app/certs/github-app.pem
+# Create certs directory for GitHub private key
+RUN mkdir -p certs && \
+    addgroup -S appgroup && \
+    adduser -S appuser -G appgroup && \
+    chown -R appuser:appgroup /app
 
-# Create non-root user
-RUN addgroup -g 1001 -S appgroup && \
-    adduser -u 1001 -S appuser -G appgroup
 USER appuser
 
-# Expose port
 EXPOSE 8080
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:8080/actuator/health || exit 1
-
-ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+ENTRYPOINT ["java", \
+    "-XX:+UseG1GC", \
+    "-XX:MaxRAMPercentage=75.0", \
+    "-XX:InitialRAMPercentage=50.0", \
+    "-jar", "app.jar"]
 ```
 
 ### Run Container
@@ -48,51 +79,59 @@ docker run -d \
   --name pr-review-bot \
   -p 8080:8080 \
   -e GITHUB_APP_ID=123456 \
-  -e GITHUB_CLIENT_ID=Iv1.xxx \
-  -e GITHUB_WEBHOOK_SECRET=secret \
+  -e GITHUB_WEBHOOK_SECRET=your-webhook-secret \
   -v $(pwd)/certs:/app/certs:ro \
   --link ollama:ollama \
   pr-review-bot:latest
 ```
 
+Mount your `certs/` directory containing `private-key.pem` into `/app/certs`.
+
 ## Docker Compose
+
+The compose file lives at `bot/docker-compose.yml` and bundles Ollama alongside the bot.
 
 ```yaml
 version: '3.8'
 
 services:
-  app:
-    build: .
-    ports:
-      - "8080:8080"
-    environment:
-      - GITHUB_APP_ID=${GITHUB_APP_ID}
-      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
-      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
-      - LLM_BASE_URL=http://ollama:11434
-    volumes:
-      - ./certs:/app/certs:ro
-      - ./logs:/app/logs
-    depends_on:
-      - ollama
-    networks:
-      - pr-review-network
-
   ollama:
     image: ollama/ollama:latest
-    volumes:
-      - ollama-data:/root/.ollama
+    container_name: pr-review-ollama
     ports:
       - "11434:11434"
-    networks:
-      - pr-review-network
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+    command: serve
+
+  pr-review-bot:
+    build: .
+    container_name: pr-review-bot
+    ports:
+      - "8080:8080"
+    depends_on:
+      - ollama
+    environment:
+      GITHUB_APP_ID: ${GITHUB_APP_ID}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET}
+      GITHUB_PRIVATE_KEY_PATH: /app/certs/private-key.pem
+      LLM_BASE_URL: http://ollama:11434
+      LLM_MODEL: qwen2.5-coder:7b
+    volumes:
+      - ./certs:/app/certs
+    restart: unless-stopped
 
 volumes:
-  ollama-data:
+  ollama_data:
+```
 
-networks:
-  pr-review-network:
-    driver: bridge
+Set environment variables in a `.env` file in the `bot/` directory:
+
+```
+GITHUB_APP_ID=12345
+GITHUB_WEBHOOK_SECRET=your-webhook-secret
 ```
 
 ## Kubernetes Deployment
@@ -106,11 +145,19 @@ metadata:
   name: pr-review-bot-config
   namespace: default
 data:
-  application.properties: |
-    github.app.id=${GITHUB_APP_ID}
-    github.client.id=${GITHUB_CLIENT_ID}
-    llm.model=qwen2.5-coder
-    llm.base-url=http://ollama-service:11434
+  application.yaml: |
+    app:
+      heuristics-enabled: true
+      llm-enabled: true
+      auto-approve: false
+      inline-comments: true
+      review-summary-enabled: true
+    github:
+      webhook-secret: "${GITHUB_WEBHOOK_SECRET}"
+    llm:
+      model: qwen2.5-coder:7b
+      base-url: http://ollama-service:11434
+      timeout-seconds: 60
 ```
 
 ### Secret
@@ -124,7 +171,7 @@ metadata:
 type: Opaque
 stringData:
   github-webhook-secret: ${GITHUB_WEBHOOK_SECRET}
-  github-app.pem: |
+  private-key.pem: |
     -----BEGIN RSA PRIVATE KEY-----
     ... (your private key content)
     -----END RSA PRIVATE KEY-----
@@ -161,11 +208,6 @@ spec:
             secretKeyRef:
               name: pr-review-bot-secrets
               key: github-app-id
-        - name: GITHUB_CLIENT_ID
-          valueFrom:
-            secretKeyRef:
-              name: pr-review-bot-secrets
-              key: github-client-id
         - name: GITHUB_WEBHOOK_SECRET
           valueFrom:
             secretKeyRef:
@@ -185,7 +227,7 @@ spec:
           periodSeconds: 10
         readinessProbe:
           httpGet:
-            path: /actuator/health/readiness
+            path: /actuator/health
             port: 8080
           initialDelaySeconds: 30
           periodSeconds: 5
@@ -201,8 +243,8 @@ spec:
         secret:
           secretName: pr-review-bot-secrets
           items:
-          - key: github-app.pem
-            path: github-app.pem
+          - key: private-key.pem
+            path: private-key.pem
 ```
 
 ### Service
@@ -278,14 +320,19 @@ spec:
 
 ### Environment Variables
 
-Ensure the following are configured in production:
-
-- `GITHUB_APP_ID`: Your GitHub App ID
-- `GITHUB_CLIENT_ID`: Your GitHub App Client ID
-- `GITHUB_WEBHOOK_SECRET`: Strong random secret (32+ characters)
-- `LLM_BASE_URL`: URL to your Ollama instance
-- `LLM_MODEL`: Model name (ensure it's pulled on the Ollama instance)
-- `SERVER_SERVLET_CONTEXT_PATH`: Optional path prefix
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GITHUB_APP_ID` | Yes | GitHub App ID |
+| `GITHUB_WEBHOOK_SECRET` | Yes | Strong random secret (32+ characters) |
+| `GITHUB_PRIVATE_KEY_PATH` | No | Path to private key (default: `certs/private-key.pem`) |
+| `LLM_BASE_URL` | No | Ollama base URL (default: `http://localhost:11434`) |
+| `LLM_MODEL` | No | Model name (default: `qwen2.5-coder:7b`) |
+| `LLM_TIMEOUT_SECONDS` | No | LLM request timeout (default: `60`) |
+| `LLM_ENABLED` | No | Enable LLM reviews (default: `true`) |
+| `HEURISTICS_ENABLED` | No | Enable heuristic checks (default: `true`) |
+| `AUTO_APPROVE` | No | Auto-approve PRs passing review (default: `false`) |
+| `INLINE_COMMENTS` | No | Post inline review comments (default: `true`) |
+| `REVIEW_SUMMARY_ENABLED` | No | Post summary comment (default: `true`) |
 
 ### Security Best Practices
 
@@ -293,7 +340,7 @@ Ensure the following are configured in production:
 2. Rotate GitHub App private keys regularly
 3. Use TLS for all network communication
 4. Store secrets in a secrets management system (Vault, AWS Secrets Manager)
-5. Run container as non-root user
+5. Run container as non-root user (enabled by default in the Dockerfile)
 6. Set resource limits
 7. Enable audit logging
 
@@ -310,12 +357,13 @@ Ensure the following are configured in production:
    spring.task.execution.pool.max-size=10
    ```
 
-3. **Cache Settings**: Token caching for performance
-   ```properties
-   github.token.cache.ttl-minutes=55
+3. **JVM Heap**: Controlled via Dockerfile flags
+   ```dockerfile
+   -XX:MaxRAMPercentage=75.0
+   -XX:InitialRAMPercentage=50.0
    ```
 
-### Monitoring & Logging
+### Monitoring and Logging
 
 Enable Spring Boot Actuator endpoints:
 
@@ -327,38 +375,8 @@ management.endpoint.health.show-details=always
 Set up logging aggregation:
 
 ```properties
-logging.level.com.pr_review_bot=INFO
+logging.level.com.bot.bot=INFO
 logging.level.org.springframework.web=WARN
-```
-
-### Database Setup (Optional)
-
-For persistence and analytics, set up PostgreSQL:
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: database-credentials
-stringData:
-  username: bot_user
-  password: secure_password
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: database-config
-data:
-  url: "jdbc:postgresql://postgres-service:5432/pr_review_bot"
-```
-
-Add to application properties:
-
-```properties
-spring.datasource.url=${DB_URL}
-spring.datasource.username=${DB_USERNAME}
-spring.datasource.password=${DB_PASSWORD}
-spring.jpa.hibernate.ddl-auto=validate
 ```
 
 ## Rollback Procedure

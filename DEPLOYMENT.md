@@ -1,37 +1,46 @@
 # Deployment Guide
 
-This guide covers deploying PR Review Bot to production environments.
+Production deployment guide for the GitHub PR Review Bot.
 
 ## Prerequisites
 
 - Java 21 runtime
-- Ollama service access (local or remote)
-- GitHub App configured
+- Ollama service (local or remote)
+- GitHub App [configured and installed](https://docs.github.com/en/apps)
 - Docker (for containerized deployment)
 - Kubernetes cluster (for K8s deployment)
 
-## Local Development Deployment
-
-### Using Maven
+## Build
 
 ```bash
-# Build the project
-mvn clean package
+cd bot/
 
-# Run the application
-java -jar target/pr-review-bot-1.0.0.jar \
+# Build (skips tests for speed; run `./mvnw clean test` separately)
+./mvnw clean package -DskipTests
+
+# The fat JAR lands at:
+#   bot/target/bot-0.0.1-SNAPSHOT.jar
+```
+
+## Local (JAR)
+
+```bash
+cd bot/
+
+java -jar target/bot-0.0.1-SNAPSHOT.jar \
   --github.app-id=YOUR_APP_ID \
   --github.webhook-secret=YOUR_SECRET \
   --llm.base-url=http://localhost:11434
 ```
 
-### Using Docker
+## Docker
 
 ```bash
-# Build Docker image
+# Build image from bot/
+cd bot/
 docker build -t pr-review-bot:latest .
 
-# Run container
+# Run
 docker run -d \
   -p 8080:8080 \
   -e GITHUB_APP_ID=YOUR_APP_ID \
@@ -42,82 +51,106 @@ docker run -d \
   pr-review-bot:latest
 ```
 
-### Using Docker Compose
+## Docker Compose (Ollama + Bot)
+
+The compose file at `bot/docker-compose.yml` bundles Ollama and the bot together.
 
 ```bash
-# Copy your GitHub private key
+cd bot/
+
+# Place your GitHub App private key
 cp ~/Downloads/pr-review-bot.pem certs/github-app.pem
 
-# Create .env file
+# Create .env (or copy .env.example)
 cat > .env << EOF
 GITHUB_APP_ID=YOUR_APP_ID
 GITHUB_CLIENT_ID=YOUR_CLIENT_ID
 GITHUB_WEBHOOK_SECRET=YOUR_SECRET
+GITHUB_PRIVATE_KEY_PATH=certs/github-app.pem
+LLM_MODEL=qwen2.5-coder:7b
+LLM_BASE_URL=http://localhost:11434
 EOF
 
-# Start services
-docker-compose up -d
+# Start everything
+docker compose up -d
 
-# View logs
-docker-compose logs -f
+# Tail logs
+docker compose logs -f
 ```
 
-## Production Deployment
+## Server Requirements
 
-### Server Requirements
+| Tier   | CPU | RAM  | Disk |
+|--------|-----|------|------|
+| Min    | 2   | 2 GB | 10 GB|
+| Rec.   | 4   | 4 GB | 20 GB|
 
-**Minimum**:
-- 2 CPU cores
-- 2GB RAM
-- 10GB disk space
+## Environment Variables
 
-**Recommended**:
-- 4 CPU cores
-- 4GB RAM
-- 20GB disk space
+The app reads these from the environment or a `.env` file:
 
-### Environment Configuration
+| Variable                   | Required | Default                  | Description                        |
+|----------------------------|----------|--------------------------|------------------------------------|
+| `GITHUB_APP_ID`            | yes      | —                        | GitHub App ID                      |
+| `GITHUB_CLIENT_ID`         | yes      | —                        | GitHub App client ID               |
+| `GITHUB_WEBHOOK_SECRET`    | yes      | —                        | Webhook secret token               |
+| `GITHUB_PRIVATE_KEY_PATH`  | yes      | `certs/private-key.pem`  | Path to the App's private key      |
+| `LLM_BASE_URL`             | yes      | `http://localhost:11434`  | Ollama API base URL                |
+| `LLM_MODEL`                | no       | `qwen2.5-coder:7b`       | Ollama model name                  |
+| `LLM_TIMEOUT_SECONDS`      | no       | `60`                     | LLM request timeout                |
+| `LLM_ENABLED`              | no       | `true`                   | Set to `false` to disable LLM      |
+| `HEURISTICS_ENABLED`       | no       | `true`                   | Enable heuristic (regex) analysis  |
+| `AUTO_APPROVE`             | no       | `false`                  | Auto-approve PRs passing review    |
+| `INLINE_COMMENTS`          | no       | `true`                   | Post inline review comments        |
+| `REVIEW_SUMMARY_ENABLED`   | no       | `true`                   | Post a summary comment             |
 
-Create production `application.yml`:
+> **Note:** `GITHUB_CLIENT_SECRET` and `GITHUB_REDIRECT_URI` are **not** used. Only the fields above are required by the application.
+
+### application.yaml Reference
+
+All properties are configurable via env vars. The canonical source is `bot/src/main/resources/application.yaml`:
 
 ```yaml
 spring:
   application:
-    name: pr-review-bot
+    name: bot
 
 server:
   port: 8080
-  compression:
-    enabled: true
-    min-response-size: 1024
 
 logging:
   level:
     root: INFO
-    com.prbot: INFO
-  pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+    com.bot.bot: DEBUG
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
 
 github:
   app-id: ${GITHUB_APP_ID}
   client-id: ${GITHUB_CLIENT_ID}
   webhook-secret: ${GITHUB_WEBHOOK_SECRET}
-  private-key-path: /etc/secrets/github-app.pem
+  private-key-path: ${GITHUB_PRIVATE_KEY_PATH}
+  api-url: https://api.github.com
 
 llm:
-  model: qwen2.5-coder:7b
-  base-url: http://ollama-service:11434
-  timeout-seconds: 60
-  enabled: true
+  model: ${LLM_MODEL:qwen2.5-coder:7b}
+  base-url: ${LLM_BASE_URL:http://localhost:11434}
+  timeout-seconds: ${LLM_TIMEOUT_SECONDS:60}
+  enabled: ${LLM_ENABLED:true}
 
 app:
-  max-diff-size-bytes: 1048576
-  max-files-per-pr: 50
-  heuristics-enabled: true
-  llm-enabled: true
+  heuristics-enabled: ${HEURISTICS_ENABLED:true}
+  llm-enabled: ${LLM_ENABLED:true}
+  auto-approve: ${AUTO_APPROVE:false}
+  inline-comments: ${INLINE_COMMENTS:true}
+  review-summary-enabled: ${REVIEW_SUMMARY_ENABLED:true}
 ```
 
-### Linux Systemd Service
+## Systemd Service
 
 Create `/etc/systemd/system/pr-review-bot.service`:
 
@@ -131,7 +164,7 @@ Type=simple
 User=prbot
 WorkingDirectory=/opt/pr-review-bot
 EnvironmentFile=/opt/pr-review-bot/.env
-ExecStart=/usr/bin/java -Xmx2g -jar pr-review-bot-1.0.0.jar
+ExecStart=/usr/bin/java -Xmx2g -jar /opt/pr-review-bot/bot-0.0.1-SNAPSHOT.jar
 Restart=on-failure
 RestartSec=10
 
@@ -140,12 +173,13 @@ WantedBy=multi-user.target
 ```
 
 Enable and start:
+
 ```bash
 sudo systemctl enable pr-review-bot
 sudo systemctl start pr-review-bot
 ```
 
-### Nginx Reverse Proxy
+## Nginx Reverse Proxy
 
 ```nginx
 upstream pr_review_bot {
@@ -165,8 +199,8 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        
-        # Webhook can take time to process
+
+        # Webhook processing can take time
         proxy_read_timeout 30s;
         proxy_connect_timeout 10s;
     }
@@ -174,6 +208,8 @@ server {
 ```
 
 ## Kubernetes Deployment
+
+All manifests assume the `pr-review` namespace.
 
 ### ConfigMap
 
@@ -184,17 +220,20 @@ metadata:
   name: pr-review-bot-config
   namespace: pr-review
 data:
-  application.yml: |
+  application.yaml: |
     spring:
       application:
-        name: pr-review-bot
+        name: bot
     logging:
       level:
         root: INFO
-        com.prbot: INFO
+        com.bot.bot: DEBUG
     app:
-      max-diff-size-bytes: 1048576
-      max-files-per-pr: 50
+      heuristics-enabled: true
+      llm-enabled: true
+      auto-approve: false
+      inline-comments: true
+      review-summary-enabled: true
 ```
 
 ### Secret
@@ -263,13 +302,13 @@ spec:
             cpu: "1000m"
         livenessProbe:
           httpGet:
-            path: /webhook/health
+            path: /actuator/health
             port: 8080
           initialDelaySeconds: 30
           periodSeconds: 10
         readinessProbe:
           httpGet:
-            path: /webhook/health
+            path: /actuator/health
             port: 8080
           initialDelaySeconds: 20
           periodSeconds: 5
@@ -330,16 +369,32 @@ spec:
 ```
 
 Deploy:
+
 ```bash
 kubectl apply -f k8s/
 ```
 
-## Monitoring
+## Health Checks
 
-### Logs
+The bot exposes two health endpoints:
+
+| Endpoint              | Purpose                          |
+|-----------------------|----------------------------------|
+| `/webhook/health`     | Application-level liveness       |
+| `/actuator/health`    | Spring Boot actuator health      |
 
 ```bash
-# Docker
+curl http://localhost:8080/webhook/health
+# => OK
+
+curl http://localhost:8080/actuator/health
+# => {"status":"UP"}
+```
+
+## Logs
+
+```bash
+# Docker / Compose
 docker logs -f pr-review-bot
 
 # Kubernetes
@@ -349,84 +404,39 @@ kubectl logs -f deployment/pr-review-bot -n pr-review
 journalctl -u pr-review-bot -f
 ```
 
-### Health Check
-
-```bash
-curl http://localhost:8080/webhook/health
-# Response: OK
-```
-
-### Metrics (Future)
-
-Consider adding Micrometer for Prometheus metrics:
-
-```yaml
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,metrics
-  metrics:
-    export:
-      prometheus:
-        enabled: true
-```
-
-## Performance Tuning
-
-### JVM Settings
+## JVM Tuning
 
 ```bash
 java -Xms1g -Xmx2g \
      -XX:+UseG1GC \
      -XX:MaxGCPauseMillis=200 \
-     -XX:+PrintGCDetails \
-     -jar pr-review-bot-1.0.0.jar
+     -jar bot-0.0.1-SNAPSHOT.jar
 ```
 
-### Connection Pooling
+## Backup & Rollback
 
-In `application.yml`:
-```yaml
-spring:
-  webflux:
-    # Configure connection pool size
-    max-connections: 50
-```
-
-### LLM Optimization
-
-- Use model caching for Ollama
-- Configure appropriate timeouts
-- Implement request queuing for high load
-
-## Backup and Recovery
-
-### Database Backups
-
-Currently, PR Review Bot is stateless. If you add persistent storage:
+The bot is **stateless** — no database to back up. Protect configuration and secrets:
 
 ```bash
-# Regular backup of configuration and secrets
-tar -czf backup-$(date +%Y%m%d).tar.gz certs/ .env
+tar -czf backup-$(date +%Y%m%d).tar.gz bot/certs/ bot/.env
 ```
 
-## Rollback
+Rollback:
 
 ```bash
 # Docker
 docker pull pr-review-bot:previous-version
-docker-compose down
-docker-compose up -d
+docker compose down
+docker compose up -d
 
 # Kubernetes
 kubectl rollout undo deployment/pr-review-bot -n pr-review
 ```
 
-## Support
+## Troubleshooting
 
-For deployment issues:
-1. Check application logs
-2. Verify all environment variables are set
-3. Ensure network connectivity to GitHub and Ollama
-4. Review GitHub App permissions
+1. **Check logs** — start with `journalctl`, `docker logs`, or `kubectl logs`.
+2. **Verify env vars** — ensure all required variables from the table above are set.
+3. **Network** — confirm the bot can reach both `api.github.com` and the Ollama server.
+4. **GitHub App** — double‑check the App permissions, webhook URL, and private key.
+5. **Ollama** — run `curl http://<ollama-host>:11434/api/tags` to verify it's responding.

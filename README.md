@@ -1,212 +1,210 @@
 # PR Review Bot
 
-An intelligent, automated code review system that integrates with GitHub to provide real-time feedback on pull requests using static heuristics and local LLM inference.
+An automated code review system that integrates with GitHub to provide real-time feedback on pull requests using static heuristics and local LLM inference (Ollama).
 
 ## Features
 
-- **Automated PR Reviews**: Triggered on PR open, update, or reopen
-- **Dual Analysis Engine**: 
-  - Fast static heuristics (secrets, null checks)
-  - Deep LLM analysis (contextual code review)
-- **Local LLM Support**: Privacy-preserving inference using Ollama
-- **GitHub Native**: Publishes reviews as GitHub PR comments
-- **Extensible**: Easy to add new heuristic rules
-- **Production Ready**: Async processing, error handling, logging
+- **Inline line-level comments**: Comments placed directly on the relevant line in the diff (like CodeRabbit)
+- **Structured PR summaries**: Severity table with file-by-file breakdown
+- **Dual analysis engine**: Fast static heuristics (secrets, null checks) + deep LLM analysis (contextual code review)
+- **Per-repo configuration**: Each repository can customize behavior via `.prreview.yaml` in the repo root
+- **Auto-approve**: Automatically approves PRs when no issues are found
+- **Privacy-preserving**: Local LLM inference via Ollama -- no code leaves your network
+- **HMAC-SHA256 verification**: All webhooks are cryptographically verified
+- **Spring Boot Actuator**: Health checks and metrics at `/actuator/health`
 
 ## Architecture
 
-The system follows a pipeline architecture with the following components:
+The system processes pull requests through a pipeline:
 
-1. **Webhook Layer**: Receives GitHub events, verifies HMAC-SHA256 signatures
-2. **GitHub Integration**: Authenticates via GitHub App, fetches PR context and diffs
-3. **Diff Processing**: Parses unified diff into structured change chunks
-4. **Dual Analysis Engine**: 
-   - Static heuristics (regex-based, fast, deterministic)
-   - LLM review (contextual, thorough, using Ollama)
-5. **Finding Merger**: Deduplicates and ranks findings by severity and confidence
-6. **Review Publisher**: Posts formatted reviews to GitHub
+1. **Webhook Layer**: Receives GitHub `pull_request` events, verifies HMAC-SHA256 signature
+2. **GitHub Integration**: Authenticates via GitHub App JWT, fetches PR context and diff
+3. **Diff Processing**: Parses unified diff into structured `ChangeChunk` objects (file path, line ranges, added/removed lines)
+4. **Dual Analysis Engine**:
+   - Static heuristics (regex-based, fast, deterministic) -- `SecretsDetectionRule`, `NullPointerDetectionRule`
+   - LLM review (contextual, thorough, using Ollama) -- `LLMReviewEngine`
+5. **Finding Merger**: Deduplicates and ranks findings by severity and confidence via `FindingMerger`
+6. **Review Publisher**: Posts formatted inline comments and a structured summary to GitHub via `ReviewPublisher.submitReview()`
 
 ## Quick Start
 
 ### Prerequisites
 
-- **Java 21+** (with Maven 3.9+)
-- **Ollama** installed locally
-- **GitHub App** configured
-- **Git** for cloning
+- Java 21+ with Maven 3.9+
+- Ollama installed locally
+- GitHub App configured
+- Git
 
-### 1. Install Ollama & Model
+### 1. Install Ollama and Pull a Model
 
 ```bash
-# Install Ollama (macOS/Linux)
 curl -fsSL https://ollama.com/install.sh | sh
-
-# Or download from https://ollama.com
-
-# Pull code review model
 ollama pull qwen2.5-coder:7b
-
-# Start Ollama server (runs on localhost:11434)
-ollama serve
+ollama serve          # runs on http://localhost:11434
 ```
 
-### 2. Create GitHub App
+### 2. Create a GitHub App
 
-1. Go to GitHub Settings > Developer settings > GitHub Apps
-2. Click "New GitHub App"
-3. Fill in the form:
-   - **App name**: pr-review-bot
-   - **Homepage URL**: https://github.com/yourusername/pr-review-bot
-   - **Webhook URL**: https://your-domain.com/webhook/github (set later with ngrok)
+1. Go to GitHub Settings > Developer settings > GitHub Apps > New GitHub App
+2. Fill in the form:
+   - **App name**: `pr-review-bot`
+   - **Homepage URL**: `https://github.com/yourusername/pr-review-bot`
+   - **Webhook URL**: `https://your-domain.com/webhook/github` (use ngrok for local dev)
    - **Webhook secret**: Generate a secure random string
+3. Set permissions:
+   - Pull requests: **Read & Write**
+   - Contents: **Read**
+4. Subscribe to events: `pull_request`
+5. Download the private key (`.pem` file)
+6. Note your App ID, Client ID, and Webhook Secret
 
-4. Set Permissions:
-   - **Repository permissions**:
-     - Pull requests: Read & Write
-     - Contents: Read
-   - **Subscribe to events**:
-     - Pull request
-
-5. Download your private key (`.pem` file)
-6. Note your:
-   - App ID
-   - Client ID
-   - Webhook Secret
-
-### 3. Configure Application
+### 3. Configure the Application
 
 ```bash
-# Clone the repository
 git clone https://github.com/yourusername/pr-review-bot.git
 cd pr-review-bot
 
-# Create .env file
+# Create the .env file
 cp .env.example .env
 
-# Edit .env with your GitHub App credentials
+# Edit with your GitHub App credentials
 nano .env
 ```
 
 **Example .env**:
+
 ```
 GITHUB_APP_ID=12345
 GITHUB_CLIENT_ID=Iv1.abcdef123456
 GITHUB_WEBHOOK_SECRET=your-webhook-secret
-GITHUB_PRIVATE_KEY_PATH=certs/github-app.pem
+GITHUB_PRIVATE_KEY_PATH=certs/private-key.pem
 LLM_MODEL=qwen2.5-coder:7b
 LLM_BASE_URL=http://localhost:11434
 ```
 
-### 4. Set Up Private Key
+The `.env` file is loaded automatically at startup -- no need to export variables manually. The loader checks `bot/.env` and `./.env`.
+
+### 4. Set Up the Private Key
 
 ```bash
-# Create certs directory
 mkdir -p certs
-
-# Copy your GitHub App private key
-cp ~/Downloads/pr-review-bot.pem certs/github-app.pem
+cp ~/Downloads/your-app.pem certs/private-key.pem
 ```
 
-### 5. Run Application
+### 5. Build and Run
 
 ```bash
-# Build and run
-./mvnw clean spring-boot:run
+# Build the JAR
+./mvnw clean package -DskipTests
+
+# Run
+java -jar target/bot-0.0.1-SNAPSHOT.jar
 
 # Application starts on http://localhost:8080
 ```
 
-### 6. Expose Webhook (Local Development)
-
-In another terminal:
+### 6. Expose Your Webhook (Local Development)
 
 ```bash
-# Install ngrok if needed
-# Download from https://ngrok.com
-
-# Start ngrok
 ngrok http 8080
-
-# You'll see: Forwarding https://abc123.ngrok.io -> http://localhost:8080
+# Forwarding https://abc123.ngrok.io -> http://localhost:8080
 ```
 
-Update your GitHub App Webhook URL to: `https://abc123.ngrok.io/webhook/github`
+Update your GitHub App's Webhook URL to `https://abc123.ngrok.io/webhook/github`.
 
-### 7. Test It Out!
+### 7. Test
 
-1. Create a test repository
-2. Install the GitHub App to your repository
-3. Open a pull request with some code changes
-4. The bot should analyze and comment within seconds!
+1. Create a test repository and install the GitHub App
+2. Open a pull request with code changes
+3. The bot analyzes the PR and posts inline comments + summary within seconds
 
 ## Configuration
 
-All configuration is handled via environment variables (or .env file):
+All configuration is handled via environment variables (or `.env` file):
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `GITHUB_APP_ID` | Your GitHub App ID | Required |
-| `GITHUB_CLIENT_ID` | Your GitHub App Client ID | Required |
-| `GITHUB_WEBHOOK_SECRET` | Webhook signature secret | Required |
-| `GITHUB_PRIVATE_KEY_PATH` | Path to private key `.pem` file | `certs/github-app.pem` |
-| `LLM_MODEL` | Ollama model name | `qwen2.5-coder:7b` |
-| `LLM_BASE_URL` | Ollama API URL | `http://localhost:11434` |
-| `LLM_TIMEOUT_SECONDS` | LLM request timeout | 60 |
-| `LLM_ENABLED` | Enable/disable LLM analysis | true |
-| `MAX_DIFF_SIZE_BYTES` | Maximum diff size to process | 1048576 (1MB) |
-| `MAX_FILES_PER_PR` | Maximum files per PR to process | 50 |
-| `HEURISTICS_ENABLED` | Enable/disable heuristic rules | true |
-| `ENABLE_COMMENT_DELETION` | Delete old bot comments | false |
+| Variable                  | Description                       | Default                      |
+|---------------------------|-----------------------------------|------------------------------|
+| `GITHUB_APP_ID`           | GitHub App ID                     | Required                     |
+| `GITHUB_CLIENT_ID`        | GitHub App Client ID              | Required                     |
+| `GITHUB_WEBHOOK_SECRET`   | Webhook signature secret          | Required                     |
+| `GITHUB_PRIVATE_KEY_PATH` | Path to private key `.pem` file   | `certs/private-key.pem`      |
+| `LLM_MODEL`               | Ollama model name                 | `qwen2.5-coder:7b`           |
+| `LLM_BASE_URL`            | Ollama API base URL               | `http://localhost:11434`     |
+| `LLM_TIMEOUT_SECONDS`     | LLM request timeout               | `60`                         |
+| `LLM_ENABLED`             | Enable/disable LLM analysis       | `true`                       |
+| `HEURISTICS_ENABLED`      | Enable/disable heuristic rules    | `true`                       |
+| `AUTO_APPROVE`            | Auto-approve PR when no findings  | `false`                      |
+| `INLINE_COMMENTS`         | Post inline line-level comments   | `true`                       |
+| `REVIEW_SUMMARY_ENABLED`  | Post structured summary comment   | `true`                       |
+
+### Per-Repository Configuration (`.prreview.yaml`)
+
+Each repository can override global settings by placing a `.prreview.yaml` file in the root of the default branch. This file is fetched from GitHub at review time.
+
+```yaml
+# .prreview.yaml
+ignore_paths:
+  - "*.md"
+  - "package-lock.json"
+  - "generated/*"
+ignore_rules:
+  - "NullPointerDetection"
+llm_model: "llama3.2:latest"        # overrides LLM_MODEL for this repo
+auto_approve: true                   # overrides AUTO_APPROVE
+inline_comments: false               # overrides INLINE_COMMENTS
+```
 
 ## Project Structure
 
 ```
 pr-review-bot/
-├── src/main/java/com/prbot/
-│   ├── config/              # Configuration classes
-│   │   ├── AppProperties.java
-│   │   ├── GitHubProperties.java
-│   │   ├── LLMProperties.java
-│   │   ├── GsonConfig.java
-│   │   └── WebClientConfig.java
-│   ├── webhook/             # Webhook handling
-│   │   ├── GitHubWebhookController.java
-│   │   ├── GitHubWebhookPayload.java
-│   │   └── WebhookSignatureVerifier.java
-│   ├── github/              # GitHub API integration
-│   │   ├── GitHubApiClient.java
-│   │   └── GitHubJwtGenerator.java
-│   ├── domain/              # Domain models
-│   │   ├── PullRequestContext.java
-│   │   ├── ChangeChunk.java
-│   │   └── Finding.java
-│   ├── diff/                # Diff parsing
-│   │   └── UnifiedDiffParser.java
-│   ├── analysis/            # Analysis engines
-│   │   ├── Rule.java
+├── src/main/java/com/bot/bot/
+│   ├── config/
+│   │   ├── AppProperties.java       # Core app settings
+│   │   ├── GitHubProperties.java    # GitHub integration settings
+│   │   ├── LLMProperties.java       # LLM/Ollama settings
+│   │   ├── ReviewConfig.java        # .prreview.yaml model
+│   │   ├── RepoConfigLoader.java    # Fetches .prreview.yaml from GitHub
+│   │   ├── GsonConfig.java          # JSON serialization
+│   │   └── WebClientConfig.java     # HTTP client config
+│   ├── webhook/
+│   │   ├── GitHubWebhookController.java   # POST /webhook/github
+│   │   └── WebhookSignatureVerifier.java  # HMAC-SHA256 verification
+│   ├── github/
+│   │   ├── GitHubApiClient.java     # submitReview() with inline comments
+│   │   └── GitHubJwtGenerator.java  # PKCS#1 and PKCS#8 compatible JWT
+│   ├── domain/
+│   │   ├── PullRequestContext.java  # PR metadata context
+│   │   ├── ChangeChunk.java         # Parsed diff chunk
+│   │   ├── Finding.java             # Review finding (with endLine)
+│   │   └── ReviewComment.java       # Inline comment model
+│   ├── diff/
+│   │   └── UnifiedDiffParser.java   # Unified diff parser
+│   ├── analysis/
+│   │   ├── Rule.java                # Heuristic rule interface
 │   │   ├── HeuristicsAnalysisEngine.java
-│   │   └── LLMReviewEngine.java
-│   ├── analysis/heuristics/ # Heuristic rules
-│   │   ├── SecretsDetectionRule.java
-│   │   └── NullPointerDetectionRule.java
-│   ├── llm/                 # LLM integration
-│   │   └── OllamaClient.java
-│   ├── engine/              # Review processing
-│   │   ├── FindingMerger.java
-│   │   └── ReviewPublisher.java
-│   ├── service/             # Business logic
-│   │   └── ReviewOrchestrator.java
-│   └── PrReviewBotApplication.java
+│   │   ├── LLMReviewEngine.java
+│   │   └── heuristics/
+│   │       ├── SecretsDetectionRule.java
+│   │       └── NullPointerDetectionRule.java
+│   ├── llm/
+│   │   └── OllamaClient.java        # Ollama API client
+│   ├── engine/
+│   │   ├── FindingMerger.java       # Dedup + rank findings
+│   │   └── ReviewPublisher.java     # Posts inline comments + summary
+│   ├── service/
+│   │   └── ReviewOrchestrator.java  # Orchestrates the full pipeline
+│   └── BotApplication.java          # Entry point with .env loader
 ├── src/main/resources/
-│   └── application.yml      # Spring config
-├── pom.xml                  # Maven configuration
-├── .env.example             # Example environment file
-└── README.md                # This file
+│   └── application.yaml             # Spring Boot config
+├── pom.xml                          # Maven (Spring Boot 4.0.2, Java 21)
+├── .env.example                     # Example environment file
+└── README.md
 ```
 
-## Adding Custom Rules
+## Adding Custom Heuristic Rules
 
-To add a new heuristic rule:
+Implement the `Rule` interface and register it as a Spring `@Component`:
 
 ```java
 @Component
@@ -214,8 +212,7 @@ public class MyCustomRule implements Rule {
     @Override
     public List<Finding> analyze(ChangeChunk chunk) {
         List<Finding> findings = new ArrayList<>();
-        
-        // Your analysis logic here
+
         for (String line : chunk.getAddedLines()) {
             if (/* your condition */) {
                 findings.add(Finding.builder()
@@ -232,15 +229,15 @@ public class MyCustomRule implements Rule {
                     .build());
             }
         }
-        
+
         return findings;
     }
-    
+
     @Override
     public String getName() {
         return "MyCustomRule";
     }
-    
+
     @Override
     public int getPriority() {
         return 500;
@@ -250,7 +247,7 @@ public class MyCustomRule implements Rule {
 
 ## API Endpoints
 
-Base URL (local development): `http://localhost:8080`
+Base URL: `http://localhost:8080`
 
 ### `GET /webhook/health`
 
@@ -260,10 +257,27 @@ Simple liveness check.
 curl http://localhost:8080/webhook/health
 ```
 
-Response:
+Response: `200 OK` — body: `OK`
 
-- Status: `200 OK`
-- Body: `OK`
+### `GET /actuator/health`
+
+Spring Boot Actuator health endpoint.
+
+```bash
+curl http://localhost:8080/actuator/health
+```
+
+```json
+{"status": "UP"}
+```
+
+### `GET /actuator/info`
+
+Application metadata.
+
+```bash
+curl http://localhost:8080/actuator/info
+```
 
 ### `POST /webhook/github`
 
@@ -271,61 +285,35 @@ Inbound GitHub webhook endpoint for pull request events.
 
 **Headers**
 
-- `X-Hub-Signature-256`: HMAC SHA-256 signature of the raw request body using `GITHUB_WEBHOOK_SECRET`, formatted as `sha256=<hex-digest>`
-- `X-GitHub-Event`: GitHub event type, this service processes `pull_request`
-- `X-GitHub-Delivery`: Unique event ID from GitHub (for logging and traceability)
-- `Content-Type`: `application/json`
+| Header                 | Description                                       |
+|------------------------|---------------------------------------------------|
+| `X-Hub-Signature-256`  | HMAC-SHA256 signature: `sha256=<hex-digest>`     |
+| `X-GitHub-Event`       | Event type (expects `pull_request`)               |
+| `X-GitHub-Delivery`    | Unique event ID (for logging and traceability)    |
+| `Content-Type`         | `application/json`                                |
 
 **Authentication**
 
-- The endpoint trusts GitHub as the caller
-- Authentication is performed by verifying the `X-Hub-Signature-256` header against the payload using the shared `GITHUB_WEBHOOK_SECRET`
-- Requests with invalid signatures are rejected with `401 Unauthorized`
+The endpoint verifies the `X-Hub-Signature-256` header against the raw request body using `GITHUB_WEBHOOK_SECRET`. Invalid signatures are rejected with `401 Unauthorized`.
 
-**Supported Events**
+**Supported Events and Actions**
 
 - Event: `pull_request`
-- Actions that trigger analysis:
-  - `opened`
-  - `synchronize`
-  - `reopened`
+- Actions: `opened`, `synchronize`, `reopened`
 
-Any other `pull_request` actions are acknowledged but ignored.
-
-**Request Body**
-
-Standard GitHub pull request webhook payload. The bot uses at least:
-
-- `action`
-- `repository.owner.login`
-- `repository.name`
-- `pull_request.number`
-- `pull_request.title`
-- `pull_request.body`
-- `pull_request.user.login`
-- `pull_request.base.ref.ref`
-- `pull_request.head.ref.ref`
-- `pull_request.head.sha`
+All other events/actions are acknowledged but ignored.
 
 **Responses**
 
-- `202 Accepted` + body `"Processing started"`
-  - Valid signature
-  - Event: `pull_request`
-  - Action: `opened`, `synchronize`, or `reopened`
-  - Side effect: asynchronous review pipeline is started
-- `200 OK` + body `"Event ignored"`
-  - Valid signature
-  - `X-GitHub-Event` is not `pull_request`
-- `200 OK` + body `"Action ignored"`
-  - Valid signature
-  - Event is `pull_request` but `action` is not one of the supported ones
-- `401 Unauthorized` + body `"Invalid signature"`
-  - Signature verification failed
-- `500 Internal Server Error` + body `"Error processing webhook"`
-  - An unexpected exception occurred while parsing or dispatching the event
+| Status | Body                    | Condition                                         |
+|--------|-------------------------|---------------------------------------------------|
+| 202    | `Processing started`    | Valid signature, supported event + action         |
+| 200    | `Event ignored`         | Valid signature, `X-GitHub-Event` is not `pull_request` |
+| 200    | `Action ignored`        | Valid signature, unsupported pull_request action  |
+| 401    | `Invalid signature`     | Signature verification failed                     |
+| 500    | `Error processing webhook` | Unexpected exception during dispatch           |
 
-**Example: Valid PR Event**
+**Example Request**
 
 ```bash
 PAYLOAD='{"action":"opened","pull_request":{"number":1,"title":"Test PR","body":"Test"},"repository":{"name":"repo","owner":{"login":"owner"}}}'
@@ -341,57 +329,69 @@ curl -v -X POST http://localhost:8080/webhook/github \
   -d "$PAYLOAD"
 ```
 
-Expected response:
+Expected response: `202 Accepted` — body: `Processing started`
 
-- Status: `202 Accepted`
-- Body: `Processing started`
+## Review Output Format
+
+### Inline Comments
+
+Findings are posted as line-level comments on the exact lines in the diff:
+
+> **HIGH** — Potential null pointer dereference
+>
+> `user.getName()` could throw NPE if `user` is null. Add a null check before accessing `getName()`.
+>
+> *Suggested fix:* `if (user != null) { ... }`
+
+### Structured Summary
+
+A summary comment is posted on the PR with a severity table and file breakdown:
+
+```
+## PR Review Summary
+
+### Findings by Severity
+
+| Severity | Count |
+|----------|-------|
+| HIGH     | 2     |
+| MEDIUM   | 1     |
+| LOW      | 3     |
+
+### Files Affected
+
+| File | Issues |
+|------|--------|
+| src/main.ts | 2 |
+| src/utils.ts | 1 |
+| tests/test.ts | 3 |
+
+### Recommendations
+
+1.  **null-pointer** in `src/main.ts:42` — Add null check before accessing `user.name`
+2.  **secrets** in `src/utils.ts:15` — Remove hardcoded API key
+```
 
 ## Testing
 
-Run the full automated test suite:
-
 ```bash
-cd bot
-./mvnw.cmd test
+cd pr-review-bot
+./mvnw test
 ```
 
-This executes:
+The test suite covers:
 
-- Spring Boot context tests
-- Unit tests for webhook handling and signature verification
-- Unit tests for diff parsing and heuristic rules
-- Unit tests for LLM review integration and finding merging
-- Orchestration tests for the end-to-end review pipeline
-
-## Deployment
-
-### Docker
-
-```dockerfile
-FROM eclipse-temurin:21-jdk-alpine
-WORKDIR /app
-COPY target/pr-review-bot-1.0.0.jar app.jar
-ENV GITHUB_APP_ID=${GITHUB_APP_ID}
-ENV GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
-ENV LLM_BASE_URL=${LLM_BASE_URL}
-EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "app.jar"]
-```
-
-Build and run:
-```bash
-mvn clean package
-docker build -t pr-review-bot:latest .
-docker run -e GITHUB_APP_ID=xxx -e GITHUB_WEBHOOK_SECRET=xxx pr-review-bot:latest
-```
-
-### Kubernetes
-
-See `docs/Deployment.md` for Kubernetes manifests and production setup guides.
+- Spring Boot context loading
+- Webhook signature verification
+- Diff parsing
+- Heuristic rules (secrets detection, null pointer detection)
+- LLM review integration
+- Finding merging and deduplication
+- Full review orchestration pipeline
 
 ## Monitoring
 
-The application logs to console with timestamps and levels:
+The application logs to console with timestamps:
 
 ```
 2024-01-15 10:23:45 - Starting PR review process
@@ -402,20 +402,22 @@ The application logs to console with timestamps and levels:
 2024-01-15 10:23:50 - Running LLM analysis
 ```
 
-Configure logging in `application.yml`:
+Configure logging in `application.yaml`:
+
 ```yaml
 logging:
   level:
-    com.prbot: DEBUG  # Set to DEBUG for more detailed logs
+    com.bot.bot: DEBUG
 ```
 
 ## Troubleshooting
 
-### LLM Service Not Available
+### LLM Not Available
 
 **Error**: "LLM service unavailable"
 
 **Solution**: Ensure Ollama is running:
+
 ```bash
 ollama serve
 ```
@@ -424,69 +426,51 @@ ollama serve
 
 **Error**: "Invalid webhook signature"
 
-**Solution**: Verify `GITHUB_WEBHOOK_SECRET` matches GitHub App settings
+**Solution**: Verify `GITHUB_WEBHOOK_SECRET` matches the value in your GitHub App settings.
 
 ### GitHub App Authentication Failed
 
 **Error**: "Failed to generate JWT token"
 
-**Solution**: 
-1. Verify private key file exists at configured path
-2. Ensure private key format is correct (PEM format)
-3. Check App ID is correct
+**Solution**:
+
+1. Verify the private key file exists at `GITHUB_PRIVATE_KEY_PATH` (default: `certs/private-key.pem`)
+2. Ensure the key is in PEM format (both PKCS#1 and PKCS#8 are supported)
+3. Check that `GITHUB_APP_ID` is correct
 
 ### Port Already in Use
 
-**Error**: "Port 8080 is already in use"
-
-**Solution**: 
 ```bash
-# Use different port
-./mvnw spring-boot:run -Dspring-boot.run.arguments="--server.port=9090"
+# Use a different port
+java -jar target/bot-0.0.1-SNAPSHOT.jar --server.port=9090
 
-# Or kill process using port 8080
+# Or kill the process on port 8080
 lsof -i :8080
 kill -9 <PID>
 ```
 
 ## Performance
 
-The system is optimized for performance:
-
-- **Parallel Heuristic Analysis**: Changes analyzed in parallel across CPU cores
-- **Async Webhook Processing**: Non-blocking PR processing
-- **Configurable LLM Timeouts**: Prevents hanging on slow responses
-- **Diff Size Limits**: Prevents memory issues with large diffs
-
-Typical performance:
-- Heuristics: ~100ms for small files
-- LLM Analysis: ~5-30s depending on model and code size
-- Total end-to-end: ~6-35s per PR
+- **Heuristics**: ~100ms for small files (parallel analysis across CPU cores)
+- **LLM analysis**: ~5-30s depending on model size and code volume
+- **End-to-end**: ~6-35s per PR (async webhook processing)
 
 ## Contributing
 
 1. Fork the repository
-2. Create feature branch (`git checkout -b feature/amazing-feature`)
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Commit changes (`git commit -m 'Add amazing feature'`)
 4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open Pull Request
+5. Open a Pull Request
 
 ## License
 
-MIT License - see LICENSE file for details.
+MIT License — see the LICENSE file for details.
 
 ## Support
 
 For issues, questions, or suggestions:
+
 1. Check existing GitHub issues
-2. Create a detailed issue with logs
-3. Include your Java/Maven/Ollama versions
-
-## Roadmap
-
-- [ ] Support for multiple LLM providers (Claude, GPT-4)
-- [ ] Custom rule marketplace
-- [ ] Web UI for configuration
-- [ ] Advanced metrics and analytics
-- [ ] Slack/Discord notifications
-- [ ] Multi-repository dashboards
+2. Create a detailed issue including logs
+3. Include your Java, Maven, and Ollama versions

@@ -1,14 +1,14 @@
-# 🚀 GitHub PR Review Bot - Getting Started Guide
+# GitHub PR Review Bot - Getting Started Guide
 
 **Time needed**: 30 minutes  
 **Difficulty**: Beginner-friendly  
-**Prerequisites**: GitHub account, Java 17+, Maven
+**Prerequisites**: GitHub account, Java 21+, Maven 3.8+
 
 ---
 
 ## Table of Contents
 
-1. [5-Minute Quick Start](#5-minute-quick-start)
+1. [Quick Start](#quick-start)
 2. [Detailed Setup](#detailed-setup)
 3. [Test & Verify](#test--verify)
 4. [Understanding the Flow](#understanding-the-flow)
@@ -16,27 +16,23 @@
 
 ---
 
-## 5-Minute Quick Start
+## Quick Start
 
-For experienced developers who want to skip details:
+For experienced developers who want to skip the details:
 
 ```bash
 # 1. Clone and build
-git clone <your-repo>
-cd pr-review-bot
-mvn clean package
+cd bot
+./mvnw clean package -DskipTests
 
-# 2. Set environment variables
-export GITHUB_APP_ID=123456
-export GITHUB_PRIVATE_KEY_PATH=/path/to/key.pem
-export GITHUB_WEBHOOK_SECRET=your-secret
-# ... (more vars below)
+# 2. Copy and edit .env with your GitHub App credentials
+cp .env.example .env
 
 # 3. Run
-java -jar target/app.jar
+java -jar target/bot-0.0.1-SNAPSHOT.jar
 
 # 4. Create a test PR on any repo
-# Watch the bot comment! 🤖
+# Watch the bot comment!
 ```
 
 ---
@@ -56,12 +52,12 @@ java -jar target/app.jar
    | App name | `pr-review-bot` |
    | Homepage URL | `https://your-domain.com` |
    | Webhook URL | `https://your-domain.com/webhook/github` |
-   | Webhook secret | Generate random string (e.g., `openssl rand -hex 32`) |
-   | Permissions (Pull Request) | ✅ Read & write |
-   | Permissions (Contents) | ✅ Read |
-   | Permissions (Check suites) | ✅ Read & write |
-   | Subscribe to events | ✅ Pull request |
-   | | ✅ Installation |
+   | Webhook secret | Generate random string (`openssl rand -hex 32`) |
+   | Permissions (Pull Request) | Read & write |
+   | Permissions (Contents) | Read |
+   | Permissions (Check suites) | Read & write |
+   | Subscribe to events | Pull request |
+   | | Installation |
 
 4. Click **"Create GitHub App"**
 5. Save the **App ID** (you'll need this)
@@ -74,12 +70,10 @@ java -jar target/app.jar
 4. Save it somewhere safe: `/secure/path/github-private-key.pem`
 5. Set permissions: `chmod 600 /secure/path/github-private-key.pem`
 
-**1.3 Get OAuth Credentials**
+**1.3 Save Client ID**
 
-1. Go to **"Client secrets"** section
-2. Click **"Generate a new client secret"**
-3. Save the secret somewhere safe (you'll only see it once)
-4. Copy the **Client ID** (starts with `Iv1.`)
+1. Copy the **Client ID** from your app settings (starts with `Iv1.`)
+2. No client secret is needed -- the bot authenticates via JWT tokens (App Installation)
 
 **1.4 Install App on Repository**
 
@@ -87,27 +81,16 @@ java -jar target/app.jar
 2. Click **"Install"** next to your repository name
 3. Select the repo or organization
 4. Click **"Install"**
-5. Note the **Installation ID** from the URL (after `/installations/`)
-
-**✅ After Phase 1, you have:**
-- App ID
-- Private key file
-- Client ID
-- Client Secret
-- Webhook secret
 
 ---
 
 ### Phase 2: Local Configuration (5 minutes)
 
-**2.1 Clone & Prepare Repository**
+**2.1 Clone & Prepare**
 
 ```bash
-# Clone the repository
 git clone <your-repo-url>
-cd pr-review-bot
-
-# Create .env file
+cd pr-review-bot/bot
 cp .env.example .env
 ```
 
@@ -116,34 +99,36 @@ cp .env.example .env
 Open `.env` and fill in:
 
 ```bash
-# From Phase 1:
-GITHUB_APP_ID=123456                    # Your numeric App ID
-GITHUB_PRIVATE_KEY_PATH=/path/to/key.pem # Full path to .pem file
+GITHUB_APP_ID=123456                   # From app settings
 GITHUB_CLIENT_ID=Iv1.xxxxxxxxxxxxx     # OAuth Client ID
-GITHUB_CLIENT_SECRET=ghp_xxxxx          # OAuth Client Secret
-GITHUB_WEBHOOK_SECRET=random_string     # Your webhook secret
-
-# For local testing:
-GITHUB_REDIRECT_URI=http://localhost:8080/webhook/github/authorize
+GITHUB_PRIVATE_KEY_PATH=/path/to/key.pem  # Full path to .pem file
+GITHUB_WEBHOOK_SECRET=your_webhook_secret  # From app creation step
 ```
 
-**2.3 Load Environment Variables**
+The `.env` file is loaded automatically at startup -- no need to `source .env`.
+
+**2.3 Optional Variables**
+
+These are set to sensible defaults but can be overridden in `.env`:
 
 ```bash
-# Option 1: Load from .env (Linux/Mac)
-source .env
+# Analysis control
+AUTO_APPROVE=false              # Auto-approve PRs with no findings
+INLINE_COMMENTS=true            # Add inline comments on problem lines
+HEURISTICS_ENABLED=true         # Run pattern-based analysis
+LLM_ENABLED=true                # Run LLM analysis (requires Ollama)
 
-# Option 2: Set manually (all platforms)
-export GITHUB_APP_ID=123456
-export GITHUB_PRIVATE_KEY_PATH=/path/to/key.pem
-# ... etc
+# LLM provider (default: Ollama with qwen2.5-coder:7b)
+LLM_MODEL=qwen2.5-coder:7b
+LLM_BASE_URL=http://localhost:11434
+LLM_TIMEOUT_SECONDS=60
 ```
 
 **2.4 Verify Configuration**
 
 ```bash
 # Check if private key is readable
-cat $GITHUB_PRIVATE_KEY_PATH | head -1
+head -1 $GITHUB_PRIVATE_KEY_PATH
 # Should show: -----BEGIN RSA PRIVATE KEY-----
 
 # Check if App ID is set
@@ -151,99 +136,58 @@ echo $GITHUB_APP_ID
 # Should show: 123456
 ```
 
-**✅ After Phase 2:**
-- All credentials configured locally
-
 ---
 
 ### Phase 3: Build Application (5 minutes)
 
-**3.1 Build with Maven**
-
 ```bash
-# Clean and build
-mvn clean package -DskipTests
+# Navigate to the bot directory (where pom.xml lives)
+cd bot
 
-# Should end with:
+# Clean build (skips tests for speed)
+./mvnw clean package -DskipTests
+
+# Expected output:
 # [INFO] BUILD SUCCESS
 # [INFO] Total time:  45.234 s
 
-# JAR file created at:
-ls -lh target/app.jar
+# Verify the JAR was created
+ls -lh target/bot-0.0.1-SNAPSHOT.jar
 ```
-
-**3.2 (Alternative) Build with Docker**
-
-```bash
-# Option A: Build Docker image
-docker build -t pr-review-bot:latest .
-
-# Option B: Use Docker Compose
-docker-compose build
-```
-
-**✅ After Phase 3:**
-- Application built and ready to run
 
 ---
 
 ### Phase 4: Run Application (2 minutes)
 
-**4.1 Start Locally**
-
 ```bash
-# Load environment variables
-source .env
+# Environment variables are auto-loaded from .env
+java -jar target/bot-0.0.1-SNAPSHOT.jar
 
-# Run the JAR
-java -jar target/app.jar
-
-# You should see:
-# Started Application in X seconds
-# [main] o.s.b.w.e.tomcat.TomcatWebServer : 
-#   Tomcat started on port(s): 8080
-
-# App is now running! ✅
+# Expected startup output:
+# Started BotApplication in X seconds
+# Tomcat started on port(s): 8080
 ```
 
-**4.2 (Alternative) Start with Docker**
+**Verify it's running:**
 
 ```bash
-# Option A: Docker
-docker run -e GITHUB_APP_ID=$GITHUB_APP_ID \
-  -e GITHUB_PRIVATE_KEY_PATH=$GITHUB_PRIVATE_KEY_PATH \
-  -e GITHUB_WEBHOOK_SECRET=$GITHUB_WEBHOOK_SECRET \
-  pr-review-bot:latest
+curl http://localhost:8080/webhook/health
+# Should return: OK
 
-# Option B: Docker Compose
-docker-compose up
+curl http://localhost:8080/actuator/health
+# Should return: {"status":"UP"}
 ```
-
-**4.3 Verify It's Running**
-
-```bash
-# In another terminal:
-curl http://localhost:8080/webhook/github
-
-# You should get:
-# 400 Bad Request (no auth header)
-# This is GOOD - it means the endpoint exists!
-```
-
-**✅ App is running on http://localhost:8080**
 
 ---
 
 ## Test & Verify
 
-### Step 1: Create Test PR
+### Step 1: Make the Bot Reachable
 
-**Local Development:**
-Since your local machine isn't accessible from GitHub, use ngrok to tunnel:
+Since your local machine isn't accessible from GitHub, use ngrok to create a tunnel:
 
 ```bash
 # Install ngrok: https://ngrok.com
-# Then tunnel your port:
 ngrok http 8080
 
 # Copy the ngrok URL (https://xxxxx.ngrok.io)
@@ -251,310 +195,210 @@ ngrok http 8080
 # https://xxxxx.ngrok.io/webhook/github
 ```
 
-**Or Use a Server:**
-If you have a public server, update GitHub App webhook URL to:
-```
-https://your-server.com:8080/webhook/github
-```
-
-### Step 2: Create PR to Test
-
-1. **Push to GitHub**
-   ```bash
-   git checkout -b test/bot-review
-   echo "// Test code" > test.java
-   git add test.java
-   git commit -m "Test PR for bot"
-   git push origin test/bot-review
-   ```
-
-2. **Open Pull Request**
-   - Go to GitHub repository
-   - Click "Compare & pull request"
-   - Create the PR
-
-3. **Watch the Magic**
-   - You should see:
-     - 🤖 "Starting code review analysis..." comment
-     - Review with findings (if any issues)
-     - Inline comments on changed lines
-
-### Step 3: Check Logs
+### Step 2: Create a Test PR
 
 ```bash
-# Look for these messages:
-tail -f logs/application.log
-
-# Should see:
-# ✓ "Received pull_request event"
-# ✓ "Starting analysis for PR"
-# ✓ "Analysis complete"
-# ✓ "Published review with X findings"
+git checkout -b test/bot-review
+echo "// Test code" > test.java
+git add test.java
+git commit -m "Test PR for bot"
+git push origin test/bot-review
 ```
 
-### Step 4: View in GitHub
+1. Go to your GitHub repository
+2. Click **"Compare & pull request"**
+3. Create the PR
 
-1. Go to your PR
-2. Scroll to **"Checks"** or **"Files Changed"** tab
-3. See the bot's review with:
-   - Summary statistics
-   - Inline comments on problem lines
-   - Confidence scores
-   - Suggestions for fixes
+### Step 3: Watch the Bot Respond
+
+The bot will:
+
+1. Receive the webhook event
+2. Fetch the diff and analyze it
+3. Post a review with findings (or auto-approve if configured)
+
+Check the bot's terminal logs:
+
+```
+Received GitHub webhook event: pull_request
+Processing PR owner/repo/#123
+Parsed 5 change chunks
+Heuristics found 3 findings
+Review published successfully for owner/repo/#123
+```
+
+### Step 4: View the Review
+
+Go to your PR on GitHub:
+
+- **Files Changed** tab -- see inline comments on specific lines
+- **Conversation** tab -- see the summary review body
+- If enabled, the bot's check suite shows the review status
 
 ---
 
 ## Understanding the Flow
 
+### High-Level Architecture
+
+```
+GitHub Webhook Event
+    |
+    v
+GitHubWebhookController     Validates signature, dispatches PR events
+    |
+    v
+ReviewOrchestrator          Coordinates the full review pipeline (async)
+    |
+    +-- GitHubApiClient      Fetches PR metadata and diff from GitHub API
+    |      +-- GitHubJwtGenerator  Generates JWT tokens for API auth
+    |
+    +-- HeuristicsAnalysisEngine  Pattern-based rules (secrets, null pointers, etc.)
+    |      +-- Rule implementations (SecretsDetectionRule, NullPointerDetectionRule, ...)
+    |
+    +-- LLMReviewEngine      AI-powered analysis via Ollama
+    |
+    +-- FindingMerger        Deduplicates and ranks findings
+    |
+    +-- ReviewPublisher      Builds review summary and inline comments
+           +-- GitHubApiClient  Submits review via GitHub API
+```
+
 ### What Happens When You Create a PR
 
 ```
-Timeline (with actual durations):
-
-[GitHub] → [Your Server] → [Analysis] → [Review Posted]
-    ↓            ↓              ↓             ↓
-  0ms        <100ms     30 sec-2 min      <5 sec
-
-Detailed flow:
-
-1. [0ms] User creates PR on GitHub
-         ↓
-2. [10ms] GitHub sends webhook with PR details
-          ↓
-3. [50ms] Your server receives webhook
-          - GithubWebhookController validates signature
-          - Routes to PullRequestEventHandler
-          - Returns 200 OK to GitHub (important!)
-          ↓
-4. [100ms] Analysis starts in background (async)
-           - Fetches PR metadata
-           - Downloads diff
-           - Posts "analyzing..." comment
-           ↓
-5. [15-90 sec] Code analysis runs
-               - StaticAnalysisEngine checks Java code
-               - LLMReview calls AI (if configured)
-               - FindingMerger combines results
-               ↓
-6. [120 sec] Review published
-             - ReviewPublisher creates GitHub review
-             - Posts inline comments
-             - Updates summary comment
-             ↓
-7. [Complete] User sees review on PR 🎉
+[1] User creates/updates PR on GitHub
+       |
+[2] GitHub sends webhook POST to /webhook/github
+       |
+[3] GitHubWebhookController:
+    - Validates X-Hub-Signature-256
+    - Returns 202 Accepted immediately
+       |
+[4] ReviewOrchestrator (async):
+    - GitHubApiClient fetches PR context + diff
+    - RepoConfigLoader loads .prreview.yaml (per-repo overrides)
+    - UnifiedDiffParser parses the diff into ChangeChunks
+       |
+[5] Analysis phase:
+    - HeuristicsAnalysisEngine runs pattern rules in parallel
+    - LLMReviewEngine calls Ollama (if enabled) for AI review
+    - FindingMerger deduplicates and ranks all findings
+       |
+[6] Review published:
+    - ReviewPublisher builds summary + inline comments
+    - GitHubApiClient.submitReview() posts to GitHub
+    - Auto-approves if enabled and no findings found
 ```
 
-### Component Interactions
+### Per-Repo Configuration (`.prreview.yaml`)
 
-```
-User Creates PR
-    ↓
-GitHub Webhook
-    ↓
-┌─────────────────────────────┐
-│ GithubWebhookController     │
-│ - Validates signature       │
-│ - Extracts PR details       │
-└──────────────┬──────────────┘
-               ↓
-┌─────────────────────────────┐
-│ GithubWebhookProcessor      │
-│ - Routes pull_request event │
-└──────────────┬──────────────┘
-               ↓
-┌─────────────────────────────┐
-│ PullRequestEventHandler     │
-│ - Fetches PR context        │
-│ - Calls AnalysisEngine      │
-│ - Calls ReviewPublisher     │
-└──────────────┬──────────────┘
-               ↓
-    ┌──────────┴──────────┐
-    ↓                     ↓
-┌──────────────────┐  ┌────────────────────┐
-│ AnalysisEngine   │  │ ReviewPublisher    │
-│ - StaticAnalysis │  │ - Posts review     │
-│ - LLM analysis   │  │ - Inline comments  │
-│ - Merge findings │  │ - Summary stats    │
-└──────────────────┘  └────────────────────┘
-    ↓                     ↓
-└──────────────┬──────────┘
-               ↓
-           GitHub PR
-        (with review)
+Add a `.prreview.yaml` to the default branch of any repo to override global settings:
+
+```yaml
+# .prreview.yaml
+enabled: true
+auto_approve: false
+inline_comments: true
+llm_model: qwen2.5-coder:7b
+ignore_paths:
+  - "*.lock"
+  - "vendor/*"
+ignore_rules:
+  - "secrets"
 ```
 
 ---
 
 ## Common Issues
 
-### ❌ Webhook Not Triggering
+### Webhook Not Triggering
 
-**Problem**: You create a PR but no bot comment appears.
+**Problem**: PR created but no bot response.
 
 **Checklist**:
-1. ✓ App installed on repository?
-   ```bash
-   Go to repo Settings → GitHub Apps
-   Your app should be listed
-   ```
+1. App installed on repository? (Repo Settings > GitHub Apps)
+2. Webhook URL correct in GitHub App settings? Should end in `/webhook/github`
+3. Server reachable from GitHub? (ngrok running, no firewall blocks)
+4. Check Recent Deliveries in GitHub App settings -- look for 200/202 responses
 
-2. ✓ Webhook URL correct?
-   ```bash
-   GitHub App Settings → Webhook URL
-   Should be: https://your-domain.com/webhook/github
-   ```
+### Signature Validation Error
 
-3. ✓ Server is reachable?
-   ```bash
-   curl https://your-domain.com/webhook/github
-   Should respond (even with 400 error is OK)
-   ```
+**Problem**: "Invalid signature" in logs.
 
-4. ✓ Check Recent Deliveries
-   ```bash
-   GitHub App Settings → Webhooks → Recent Deliveries
-   Look for 200 status codes
-   ```
+**Solution**: The webhook secret must match exactly between GitHub App settings and your `.env`.
 
-**Solution**:
 ```bash
-# If using ngrok locally:
-1. ngrok http 8080
-2. Copy ngrok URL (e.g., https://abc123.ngrok.io)
-3. Update GitHub App → Webhook URL to:
-   https://abc123.ngrok.io/webhook/github
-4. Create test PR
-```
-
----
-
-### ❌ Signature Validation Error
-
-**Problem**: "Invalid webhook signature"
-
-**Cause**: Webhook secret mismatch
-
-**Solution**:
-```bash
-# 1. Check GitHub App webhook secret
-# Settings → Webhooks → Secret field
-
-# 2. Check your environment variable
+# Verify your env variable
 echo $GITHUB_WEBHOOK_SECRET
 
-# 3. Must match exactly!
-# If not, update environment variable:
-export GITHUB_WEBHOOK_SECRET=correct_secret
-
-# 4. Restart application
-pkill -f "java -jar"
-java -jar target/app.jar
+# Update in GitHub App Settings > Webhook > Secret
+# Then restart the bot
 ```
 
----
+### Private Key Error
 
-### ❌ "Installation Not Found"
-
-**Problem**: Error in logs: "Installation ID not found"
-
-**Cause**: App not installed on repository
-
-**Solution**:
-1. Go to your GitHub App settings
-2. Click "Install App"
-3. Select your repository
-4. Click "Install"
-5. Note the Installation ID
-6. Create a new PR
-
----
-
-### ❌ Private Key Error
-
-**Problem**: "Unable to load private key"
-
-**Cause**: Private key path wrong or permissions issue
+**Problem**: "Unable to load private key".
 
 **Solution**:
 ```bash
-# 1. Verify file exists and is readable
-cat $GITHUB_PRIVATE_KEY_PATH | head -1
+# Verify file exists and has correct format
+head -1 $GITHUB_PRIVATE_KEY_PATH
 # Should show: -----BEGIN RSA PRIVATE KEY-----
 
-# 2. Check permissions
-ls -l $GITHUB_PRIVATE_KEY_PATH
-# Should be: -rw------- (600)
+# Check permissions
 chmod 600 $GITHUB_PRIVATE_KEY_PATH
 
-# 3. Verify path is correct
+# Must use full absolute path, not ~/path
 echo $GITHUB_PRIVATE_KEY_PATH
-# Should be full path, not ~/path or $HOME/path
-
-# 4. Restart app
 ```
 
----
+### Port 8080 Already in Use
 
-### ❌ Port 8080 Already in Use
-
-**Problem**: "Address already in use: bind"
+**Problem**: "Address already in use: bind".
 
 **Solution**:
 ```bash
-# Option 1: Use different port
-java -jar target/app.jar --server.port=9090
+# Use a different port
+java -jar target/bot-0.0.1-SNAPSHOT.jar --server.port=9090
 
-# Option 2: Kill existing process
-# macOS/Linux:
+# Or kill the existing process
 lsof -i :8080
 kill -9 <PID>
-
-# Windows:
-netstat -ano | findstr :8080
-taskkill /PID <PID> /F
 ```
 
----
+### LLM Analysis Failing
 
-### ❌ Analysis Taking Too Long
-
-**Problem**: Analysis takes >5 minutes
+**Problem**: LLM review engine errors in logs.
 
 **Solution**:
-```properties
-# In application.properties, increase thread pool:
-spring.task.execution.pool.core-size=10
-spring.task.execution.pool.max-size=20
-
-# Or if using LLM, check API rate limits:
-# - OpenAI: 3 requests/min on free tier
-# - Claude: Check your plan
-```
+- Ensure Ollama is running: `ollama list`
+- Verify the model is pulled: `ollama pull qwen2.5-coder:7b`
+- Check `LLM_BASE_URL` -- for local Ollama, use `http://localhost:11434`
+- Set `LLM_ENABLED=false` to run heuristics-only (no AI required)
 
 ---
 
-## 🎉 You're Ready!
+## You're Ready
 
 After completing all steps:
 
-✅ GitHub App is created and installed  
-✅ Environment variables are configured  
-✅ Application is built and running  
-✅ Webhook is receiving requests  
-✅ First PR review was posted  
+- GitHub App is created and installed
+- Environment variables are configured
+- Application is built and running
+- Webhook is receiving requests
+- First PR review was posted
 
 **Next Steps**:
 
-1. **Fine-tune**: Adjust analysis severity levels based on your needs
-2. **Customize**: Add custom analysis rules specific to your codebase
-3. **Deploy**: Move to production server or cloud platform
-4. **Monitor**: Track PR quality trends and bot accuracy
-5. **Integrate**: Connect to Slack, JIRA, or other tools
+1. **Fine-tune** -- adjust analysis settings via `application.yaml` or `.prreview.yaml`
+2. **Add custom rules** -- implement new `Rule` classes for project-specific patterns
+3. **Deploy** -- move to a production server or cloud platform
+4. **Integrate LLM** -- configure Ollama or another provider for AI-powered reviews
 
 ---
 
-## 📖 More Documentation
+## More Documentation
 
 - **Quick Reference**: See `QUICK_REFERENCE.md`
 - **Full Usage Guide**: See `USAGE_GUIDE.md`
@@ -563,32 +407,25 @@ After completing all steps:
 
 ---
 
-## 💬 Need Help?
+## Need Help?
 
 1. **Check logs**:
    ```bash
    tail -f logs/application.log | grep ERROR
    ```
 
-2. **Test endpoint**:
+2. **Test the webhook endpoint**:
    ```bash
-   curl http://localhost:8080/webhook/github -v
+   curl -v http://localhost:8080/webhook/health
+   curl -v http://localhost:8080/actuator/health
    ```
 
-3. **Verify GitHub connection**:
-   ```bash
-   curl -H "Authorization: token YOUR_TOKEN" \
-     https://api.github.com/app
-   ```
-
-4. **Review GitHub App webhooks**:
-   - Settings → Webhooks → Recent Deliveries
-   - Look for failed (non-200) requests
+3. **Review GitHub App webhook deliveries**:
+   Settings > Webhooks > Recent Deliveries
+   Look for failed (non-200) requests
 
 ---
 
-**Status**: ✅ Ready to launch!  
-**Version**: 1.0  
-**Last Updated**: 2024
-
-Happy reviewing! 🚀
+**Status**: Ready to launch  
+**Version**: 2.0  
+**Last Updated**: 2026
