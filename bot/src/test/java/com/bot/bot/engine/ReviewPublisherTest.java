@@ -1,6 +1,7 @@
 package com.bot.bot.engine;
 
 import com.bot.bot.domain.Finding;
+import com.bot.bot.domain.ReviewComment;
 import com.bot.bot.github.GitHubApiClient;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -9,33 +10,35 @@ import reactor.core.publisher.Mono;
 
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ReviewPublisherTest {
 
     @Test
-    void publishesNoIssuesCommentWhenNoFindings() {
+    void publishesNoIssuesReviewWhenNoFindings() {
         GitHubApiClient client = Mockito.mock(GitHubApiClient.class);
-        when(client.postComment(anyString(), anyString(), anyInt(), anyString()))
+        when(client.submitReview(anyString(), anyString(), anyInt(), anyString(), anyString(), anyList()))
                 .thenReturn(Mono.empty());
 
         ReviewPublisher publisher = new ReviewPublisher(client);
-
         publisher.publishReview("owner", "repo", 1, List.of()).block();
 
         ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
-        verify(client).postComment(Mockito.eq("owner"), Mockito.eq("repo"), Mockito.eq(1), bodyCaptor.capture());
-        assertTrue(bodyCaptor.getValue().contains("No issues found"));
+        verify(client).submitReview(
+                eq("owner"), eq("repo"), eq(1),
+                bodyCaptor.capture(), eq("COMMENT"), anyList());
+        String body = bodyCaptor.getValue();
+        assertTrue(body.contains("No issues found"));
     }
 
     @Test
     void publishesFormattedReviewWhenFindingsPresent() {
         GitHubApiClient client = Mockito.mock(GitHubApiClient.class);
-        when(client.postComment(anyString(), anyString(), anyInt(), anyString()))
+        when(client.submitReview(anyString(), anyString(), anyInt(), anyString(), anyString(), anyList()))
                 .thenReturn(Mono.empty());
 
         ReviewPublisher publisher = new ReviewPublisher(client);
@@ -46,8 +49,8 @@ class ReviewPublisherTest {
                 .lineNumber(10)
                 .severity("HIGH")
                 .category("TEST")
-                .message("message")
-                .suggestion("suggestion")
+                .message("Some issue here")
+                .suggestion("Fix it")
                 .source("HEURISTIC")
                 .confidence(0.9)
                 .precedenceScore(100)
@@ -56,11 +59,65 @@ class ReviewPublisherTest {
         publisher.publishReview("owner", "repo", 1, List.of(finding)).block();
 
         ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
-        verify(client).postComment(Mockito.eq("owner"), Mockito.eq("repo"), Mockito.eq(1), bodyCaptor.capture());
+        ArgumentCaptor<List<ReviewComment>> commentsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(client).submitReview(
+                eq("owner"), eq("repo"), eq(1),
+                bodyCaptor.capture(), eq("COMMENT"), commentsCaptor.capture());
+
+        // Summary body should contain overall structure
         String body = bodyCaptor.getValue();
-        assertTrue(body.contains("Code Review Analysis"));
+        assertTrue(body.contains("PR Review"));
         assertTrue(body.contains("HIGH"));
         assertTrue(body.contains("file.java"));
+
+        // Should have an inline comment for the finding with a line number
+        List<ReviewComment> comments = commentsCaptor.getValue();
+        assertFalse(comments.isEmpty());
+        ReviewComment inline = comments.get(0);
+        assertTrue(inline.getBody().contains("HIGH"));
+        assertTrue(inline.getBody().contains("Fix it"));
+    }
+
+    @Test
+    void autoApprovesWhenNoFindingsAndFlagSet() {
+        GitHubApiClient client = Mockito.mock(GitHubApiClient.class);
+        when(client.submitReview(anyString(), anyString(), anyInt(), anyString(), anyString(), anyList()))
+                .thenReturn(Mono.empty());
+
+        ReviewPublisher publisher = new ReviewPublisher(client);
+        publisher.publishReview("owner", "repo", 1, List.of(), true).block();
+
+        verify(client).submitReview(
+                eq("owner"), eq("repo"), eq(1),
+                anyString(), eq("APPROVE"), anyList());
+    }
+
+    @Test
+    void doesNotCreateInlineCommentForFindingWithoutLineNumber() {
+        GitHubApiClient client = Mockito.mock(GitHubApiClient.class);
+        when(client.submitReview(anyString(), anyString(), anyInt(), anyString(), anyString(), anyList()))
+                .thenReturn(Mono.empty());
+
+        ReviewPublisher publisher = new ReviewPublisher(client);
+
+        Finding finding = Finding.builder()
+                .id("1")
+                .filePath("file.java")
+                .lineNumber(0) // no line number
+                .severity("HIGH")
+                .category("TEST")
+                .message("message")
+                .source("LLM")
+                .confidence(0.8)
+                .precedenceScore(100)
+                .build();
+
+        publisher.publishReview("owner", "repo", 1, List.of(finding)).block();
+
+        ArgumentCaptor<List<ReviewComment>> commentsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(client).submitReview(
+                eq("owner"), eq("repo"), eq(1),
+                anyString(), eq("COMMENT"), commentsCaptor.capture());
+        assertTrue(commentsCaptor.getValue().isEmpty(), "No inline comments for findings without line numbers");
     }
 }
-

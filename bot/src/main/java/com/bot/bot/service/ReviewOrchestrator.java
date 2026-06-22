@@ -114,9 +114,11 @@ public class ReviewOrchestrator {
         List<Finding> rankedFindings = findingMerger.mergeAndRank(findings);
         log.info("Final {} findings after deduplication and ranking", rankedFindings.size());
 
-        // 4. Publish review
+        // 4. Publish review with inline comments
         log.debug("Publishing review to {}/{}/PR#{}", prContext.getOwner(), prContext.getRepo(), prContext.getPrNumber());
-        return reviewPublisher.publishReview(prContext.getOwner(), prContext.getRepo(), prContext.getPrNumber(), rankedFindings)
+        return reviewPublisher.publishReview(
+                        prContext.getOwner(), prContext.getRepo(), prContext.getPrNumber(),
+                        rankedFindings, appProperties.isAutoApprove())
                 .doOnSuccess(v -> log.info("Review published successfully for {}/{}/PR#{}",
                         prContext.getOwner(), prContext.getRepo(), prContext.getPrNumber()))
                 .doOnError(e -> log.error("Error publishing review for {}/{}/PR#{}",

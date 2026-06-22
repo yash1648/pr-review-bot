@@ -45,3 +45,6 @@ llm:
 app:
   heuristics-enabled: ${HEURISTICS_ENABLED:true}
   llm-enabled: ${LLM_ENABLED:true}
+  auto-approve: ${AUTO_APPROVE:false}
+  inline-comments: ${INLINE_COMMENTS:true}
+  review-summary-enabled: ${REVIEW_SUMMARY_ENABLED:true}

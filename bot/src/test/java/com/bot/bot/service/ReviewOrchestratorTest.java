@@ -20,7 +20,7 @@ import java.util.Collections;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -99,7 +99,9 @@ class ReviewOrchestratorTest {
 
         List<Finding> merged = List.of(heuristicFinding, llmFinding);
         when(findingMerger.mergeAndRank(any())).thenReturn(merged);
-        when(reviewPublisher.publishReview("owner", "repo", 1, merged)).thenReturn(Mono.empty());
+        // Match the 5-arg publishReview call with any autoApprove value
+        when(reviewPublisher.publishReview(anyString(), anyString(), anyInt(), anyList(), anyBoolean()))
+                .thenReturn(Mono.empty());
 
         JsonObject webhookData = new JsonObject();
         orchestrator.processPullRequest(webhookData);
@@ -110,4 +112,3 @@ class ReviewOrchestratorTest {
         assertEquals(2, allFindings.size());
     }
 }
-

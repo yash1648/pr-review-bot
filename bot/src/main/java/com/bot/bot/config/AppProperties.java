@@ -10,4 +10,7 @@ import lombok.Data;
 public class AppProperties {
     private boolean heuristicsEnabled = true;
     private boolean llmEnabled = true;
+    private boolean autoApprove = false;
+    private boolean inlineComments = true;
+    private boolean reviewSummaryEnabled = true;
 }
