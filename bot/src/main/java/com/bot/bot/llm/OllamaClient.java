@@ -13,11 +13,16 @@ import java.time.Duration;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class OllamaClient {
     private final LLMProperties llmProperties;
     private final WebClient webClient;
-    private final Gson gson = new Gson();
+    private final Gson gson;
+
+    public OllamaClient(LLMProperties llmProperties, WebClient webClient, Gson gson) {
+        this.llmProperties = llmProperties;
+        this.webClient = webClient;
+        this.gson = gson;
+    }
 
     public Mono<String> generateCodeReview(String prompt) {
         if (!llmProperties.isEnabled()) {

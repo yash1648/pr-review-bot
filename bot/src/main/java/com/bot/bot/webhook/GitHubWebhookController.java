@@ -16,7 +16,7 @@ import com.bot.bot.service.ReviewOrchestrator;
 public class GitHubWebhookController {
     private final WebhookSignatureVerifier signatureVerifier;
     private final ReviewOrchestrator reviewOrchestrator;
-    private final Gson gson = new Gson();
+    private final Gson gson;
 
     @PostMapping("/github")
     public ResponseEntity<String> handleGitHubWebhook(

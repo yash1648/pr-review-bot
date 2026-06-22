@@ -1,6 +1,7 @@
 package com.bot.bot.webhook;
 
 import com.bot.bot.service.ReviewOrchestrator;
+import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -19,7 +20,8 @@ class GitHubWebhookControllerTest {
     void healthEndpointReturnsOk() {
         WebhookSignatureVerifier signatureVerifier = Mockito.mock(WebhookSignatureVerifier.class);
         ReviewOrchestrator reviewOrchestrator = Mockito.mock(ReviewOrchestrator.class);
-        GitHubWebhookController controller = new GitHubWebhookController(signatureVerifier, reviewOrchestrator);
+        Gson gson = new Gson();
+        GitHubWebhookController controller = new GitHubWebhookController(signatureVerifier, reviewOrchestrator, gson);
 
         ResponseEntity<String> response = controller.health();
 
@@ -31,7 +33,8 @@ class GitHubWebhookControllerTest {
     void returnsUnauthorizedWhenSignatureInvalid() {
         WebhookSignatureVerifier signatureVerifier = Mockito.mock(WebhookSignatureVerifier.class);
         ReviewOrchestrator reviewOrchestrator = Mockito.mock(ReviewOrchestrator.class);
-        GitHubWebhookController controller = new GitHubWebhookController(signatureVerifier, reviewOrchestrator);
+        Gson gson = new Gson();
+        GitHubWebhookController controller = new GitHubWebhookController(signatureVerifier, reviewOrchestrator, gson);
 
         when(signatureVerifier.verifySignature(any(), any())).thenReturn(false);
 
@@ -51,7 +54,8 @@ class GitHubWebhookControllerTest {
     void ignoresNonPullRequestEvents() {
         WebhookSignatureVerifier signatureVerifier = Mockito.mock(WebhookSignatureVerifier.class);
         ReviewOrchestrator reviewOrchestrator = Mockito.mock(ReviewOrchestrator.class);
-        GitHubWebhookController controller = new GitHubWebhookController(signatureVerifier, reviewOrchestrator);
+        Gson gson = new Gson();
+        GitHubWebhookController controller = new GitHubWebhookController(signatureVerifier, reviewOrchestrator, gson);
 
         when(signatureVerifier.verifySignature(any(), any())).thenReturn(true);
 
@@ -71,7 +75,8 @@ class GitHubWebhookControllerTest {
     void processesPullRequestForSupportedActions() {
         WebhookSignatureVerifier signatureVerifier = Mockito.mock(WebhookSignatureVerifier.class);
         ReviewOrchestrator reviewOrchestrator = Mockito.mock(ReviewOrchestrator.class);
-        GitHubWebhookController controller = new GitHubWebhookController(signatureVerifier, reviewOrchestrator);
+        Gson gson = new Gson();
+        GitHubWebhookController controller = new GitHubWebhookController(signatureVerifier, reviewOrchestrator, gson);
 
         when(signatureVerifier.verifySignature(any(), any())).thenReturn(true);
 
@@ -97,7 +102,8 @@ class GitHubWebhookControllerTest {
     void ignoresUnsupportedPullRequestActions() {
         WebhookSignatureVerifier signatureVerifier = Mockito.mock(WebhookSignatureVerifier.class);
         ReviewOrchestrator reviewOrchestrator = Mockito.mock(ReviewOrchestrator.class);
-        GitHubWebhookController controller = new GitHubWebhookController(signatureVerifier, reviewOrchestrator);
+        Gson gson = new Gson();
+        GitHubWebhookController controller = new GitHubWebhookController(signatureVerifier, reviewOrchestrator, gson);
 
         when(signatureVerifier.verifySignature(any(), any())).thenReturn(true);
 
