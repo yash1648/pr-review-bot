@@ -46,10 +46,10 @@ services:
   #     start_period: 40s
   #   restart: unless-stopped
 
-  # ── PR Review Bot ───────────────────────────────────────────────────
-  pr-review-bot:
+  # ── Glint — AI PR Review Bot ───────────────────────────────────────
+  glint:
     build: .
-    container_name: pr-review-bot
+    container_name: glint
     ports:
       - "${PORT:-8080}:8080"
     env_file:
