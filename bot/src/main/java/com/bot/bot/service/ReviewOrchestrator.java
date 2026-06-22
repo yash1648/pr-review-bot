@@ -40,7 +40,7 @@ public class ReviewOrchestrator {
      * Process pull request asynchronously.
      * Fetches PR data, loads per-repo config, analyzes changes, and publishes review.
      */
-    @Async
+    @Async("reviewTaskExecutor")
     public void processPullRequest(JsonObject webhookData) {
         log.info("Starting PR review process");
 

@@ -1,14 +1,15 @@
 package com.bot.bot.github;
 
-import org.springframework.stereotype.Service;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import com.bot.bot.config.GitHubProperties;
+import com.bot.bot.config.WebClientConfig;
 import com.bot.bot.domain.PullRequestContext;
 import com.bot.bot.domain.ReviewComment;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
@@ -16,10 +17,20 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 
+/**
+ * Client for the GitHub REST API.
+ * <p>
+ * All authenticated API calls use an installation access token obtained by
+ * exchanging the App JWT. The token is cached per installation ID for 55 minutes.
+ * <p>
+ * Transient failures (5xx, network timeouts) are retried automatically
+ * via {@link WebClientConfig#buildRetrySpec(String)} with exponential backoff.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class GitHubApiClient {
+
     private final GitHubProperties gitHubProperties;
     private final GitHubJwtGenerator jwtGenerator;
     private final WebClient webClient;
@@ -125,7 +136,9 @@ public class GitHubApiClient {
                         throw new RuntimeException("Failed to get installation token", e);
                     }
                 })
-                .doOnError(e -> log.error("Error fetching installation token for installation {}", installationId, e));
+                .retryWhen(WebClientConfig.buildRetrySpec("get-installation-token"))
+                .doOnError(e -> log.error("Error fetching installation token for installation {} after retries",
+                        installationId, e));
     }
 
     /**
@@ -142,7 +155,9 @@ public class GitHubApiClient {
                         .header("Authorization", "Bearer " + token)
                         .retrieve()
                         .bodyToMono(String.class))
-                .doOnError(e -> log.error("Error fetching diff for {}/{}/PR#{}", owner, repo, prNumber, e));
+                .retryWhen(WebClientConfig.buildRetrySpec("fetch-diff"))
+                .doOnError(e -> log.error("Error fetching diff for {}/{}/PR#{} after retries",
+                        owner, repo, prNumber, e));
     }
 
     /**
@@ -186,7 +201,9 @@ public class GitHubApiClient {
                         .retrieve()
                         .toBodilessEntity()
                         .then())
-                .doOnError(e -> log.error("Error submitting review for {}/{}/PR#{}", owner, repo, prNumber, e));
+                .retryWhen(WebClientConfig.buildRetrySpec("submit-review"))
+                .doOnError(e -> log.error("Error submitting review for {}/{}/PR#{} after retries",
+                        owner, repo, prNumber, e));
     }
 
     /**
@@ -208,6 +225,8 @@ public class GitHubApiClient {
                         .retrieve()
                         .toBodilessEntity()
                         .then())
-                .doOnError(e -> log.error("Error posting comment for {}/{}/PR#{}", owner, repo, prNumber, e));
+                .retryWhen(WebClientConfig.buildRetrySpec("post-comment"))
+                .doOnError(e -> log.error("Error posting comment for {}/{}/PR#{} after retries",
+                        owner, repo, prNumber, e));
     }
 }

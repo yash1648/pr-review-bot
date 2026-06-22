@@ -2,8 +2,6 @@ package com.bot.bot;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.scheduling.annotation.EnableAsync;
-
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
@@ -15,7 +13,6 @@ import java.util.Properties;
  * Bootstraps Spring Boot and loads .env configuration before context initialization.
  */
 @SpringBootApplication
-@EnableAsync
 public class BotApplication {
 
     public static void main(String[] args) {

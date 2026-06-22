@@ -1,19 +1,30 @@
 package com.bot.bot.webhook;
 
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.bot.bot.service.ReviewOrchestrator;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
 
+/**
+ * Webhook controller for GitHub App events.
+ * <p>
+ * Injects {@code X-GitHub-Delivery} into the MDC "traceId" field for request tracing
+ * through async processing pipelines, enabling log correlation across threads.
+ */
 @Slf4j
 @RestController
 @RequestMapping("/webhook")
 @RequiredArgsConstructor
 public class GitHubWebhookController {
+
+    /** Maximum allowed webhook payload size in bytes (5 MB). */
+    private static final long MAX_PAYLOAD_BYTES = 5 * 1024 * 1024L;
+
     private final WebhookSignatureVerifier signatureVerifier;
     private final ReviewOrchestrator reviewOrchestrator;
     private final Gson gson;
@@ -25,46 +36,70 @@ public class GitHubWebhookController {
             @RequestHeader("X-GitHub-Event") String eventType,
             @RequestHeader("X-GitHub-Delivery") String deliveryId) {
 
-        log.info("Received GitHub webhook event: {} (delivery: {})", eventType, deliveryId);
-
-        // Verify webhook signature (optional header = missing signature)
-        if (signature == null || !signatureVerifier.verifySignature(payload, signature)) {
-            log.warn("Invalid or missing webhook signature for delivery: {}", deliveryId);
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid signature");
-        }
-
-        // Only process pull request events
-        if (!"pull_request".equals(eventType)) {
-            log.debug("Ignoring non-PR event: {}", eventType);
-            return ResponseEntity.ok("Event ignored");
-        }
-
+        // Inject trace ID into MDC for the duration of this request
+        MDC.put("traceId", deliveryId);
+        MDC.put("eventType", eventType);
         try {
-            JsonObject webhookData = gson.fromJson(payload, JsonObject.class);
-            if (webhookData == null) {
-                return ResponseEntity.badRequest().body("Invalid JSON payload");
+            log.info("Received event: {} (delivery: {})", eventType, deliveryId);
+
+            // ── Payload size validation ─────────────────────────
+            long payloadBytes = payload != null ? payload.getBytes(java.nio.charset.StandardCharsets.UTF_8).length : 0;
+            if (payloadBytes > MAX_PAYLOAD_BYTES) {
+                log.warn("Payload too large: {} bytes (max: {})", payloadBytes, MAX_PAYLOAD_BYTES);
+                return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+                        .body("Payload exceeds maximum size of " + MAX_PAYLOAD_BYTES + " bytes");
             }
 
-            String action = webhookData.has("action") && !webhookData.get("action").isJsonNull()
-                    ? webhookData.get("action").getAsString() : null;
-
-            if (action == null) {
-                log.warn("Missing action in webhook payload for delivery: {}", deliveryId);
-                return ResponseEntity.badRequest().body("Missing action field");
+            // ── Signature verification ──────────────────────────
+            if (signature == null || !signatureVerifier.verifySignature(payload, signature)) {
+                log.warn("Invalid or missing webhook signature");
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid signature");
             }
 
-            // Process PR opened, synchronize, or reopened
-            if ("opened".equals(action) || "synchronize".equals(action) || "reopened".equals(action)) {
-                log.info("Processing PR action: {}", action);
-                reviewOrchestrator.processPullRequest(webhookData);
-                return ResponseEntity.accepted().body("Processing started");
-            } else {
-                log.debug("Ignoring PR action: {}", action);
-                return ResponseEntity.ok("Action ignored");
+            // ── Only process pull request events ────────────────
+            if (!"pull_request".equals(eventType)) {
+                log.debug("Ignoring non-PR event: {}", eventType);
+                return ResponseEntity.ok("Event ignored");
             }
-        } catch (Exception e) {
-            log.error("Error processing webhook", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Error processing webhook");
+
+            try {
+                JsonObject webhookData = gson.fromJson(payload, JsonObject.class);
+                if (webhookData == null) {
+                    return ResponseEntity.badRequest().body("Invalid JSON payload");
+                }
+
+                String action = webhookData.has("action") && !webhookData.get("action").isJsonNull()
+                        ? webhookData.get("action").getAsString() : null;
+
+                if (action == null) {
+                    log.warn("Missing action in webhook payload");
+                    return ResponseEntity.badRequest().body("Missing action field");
+                }
+
+                // Enrich MDC with repo context for downstream
+                JsonObject repo = webhookData.getAsJsonObject("repository");
+                if (repo != null && repo.get("full_name") != null && !repo.get("full_name").isJsonNull()) {
+                    MDC.put("repo", repo.get("full_name").getAsString());
+                }
+                MDC.put("action", action);
+
+                if ("opened".equals(action) || "synchronize".equals(action) || "reopened".equals(action)) {
+                    log.info("Processing PR action: {}", action);
+                    reviewOrchestrator.processPullRequest(webhookData);
+                    return ResponseEntity.accepted().body("Processing started");
+                } else {
+                    log.debug("Ignoring PR action: {}", action);
+                    return ResponseEntity.ok("Action ignored");
+                }
+
+            } catch (Exception e) {
+                log.error("Error processing webhook", e);
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .body("Error processing webhook");
+            }
+
+        } finally {
+            MDC.clear();
         }
     }
 

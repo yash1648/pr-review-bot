@@ -1,8 +1,9 @@
 package com.bot.bot.llm;
 
+import com.bot.bot.config.LLMProperties;
+import com.bot.bot.config.WebClientConfig;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import com.bot.bot.config.LLMProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
@@ -11,10 +12,18 @@ import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 
+/**
+ * LLM client for Ollama.
+ * Uses the {@code /api/generate} endpoint with the configured model.
+ * <p>
+ * Automatically retries on transient failures (502, network timeouts) with
+ * exponential backoff.
+ */
 @Slf4j
 @Service
-@ConditionalOnProperty(name = "llm.provider", havingValue = "ollama", matchIfMissing = true)
+@ConditionalOnProperty(name = "llm.provider", havingValue = "ollama")
 public class OllamaClient implements LLMClient {
+
     private final LLMProperties llmProperties;
     private final WebClient webClient;
     private final Gson gson;
@@ -29,6 +38,10 @@ public class OllamaClient implements LLMClient {
     public Mono<String> generateCodeReview(String prompt) {
         if (!llmProperties.isEnabled()) {
             return Mono.just("LLM review disabled");
+        }
+
+        if (prompt == null || prompt.isBlank()) {
+            return Mono.just("No diff content to review");
         }
 
         JsonObject requestBody = new JsonObject();
@@ -48,17 +61,17 @@ public class OllamaClient implements LLMClient {
                 .map(response -> {
                     try {
                         JsonObject jsonResponse = gson.fromJson(response, JsonObject.class);
-                        return jsonResponse.get("response").getAsString();
+                        String text = jsonResponse.get("response").getAsString();
+                        return text != null ? text : "";
                     } catch (Exception e) {
-                        log.error("Error parsing LLM response", e);
+                        log.error("Error parsing Ollama response", e);
                         return "Error processing LLM response";
                     }
                 })
+                .retryWhen(WebClientConfig.buildRetrySpec("ollama-review"))
                 .onErrorResume(e -> {
-                    log.warn("Error calling Ollama LLM", e);
+                    log.warn("Error calling Ollama LLM after retries", e);
                     return Mono.just("LLM service unavailable");
                 });
     }
-
 }
-
