@@ -3,6 +3,8 @@ package com.bot.bot.service;
 import com.bot.bot.analysis.HeuristicsAnalysisEngine;
 import com.bot.bot.analysis.LLMReviewEngine;
 import com.bot.bot.config.AppProperties;
+import com.bot.bot.config.RepoConfigLoader;
+import com.bot.bot.config.ReviewConfig;
 import com.bot.bot.diff.UnifiedDiffParser;
 import com.bot.bot.domain.ChangeChunk;
 import com.bot.bot.domain.Finding;
@@ -34,18 +36,15 @@ class ReviewOrchestratorTest {
         LLMReviewEngine llmReviewEngine = Mockito.mock(LLMReviewEngine.class);
         FindingMerger findingMerger = Mockito.mock(FindingMerger.class);
         ReviewPublisher reviewPublisher = Mockito.mock(ReviewPublisher.class);
+        RepoConfigLoader repoConfigLoader = Mockito.mock(RepoConfigLoader.class);
         AppProperties appProperties = new AppProperties();
         appProperties.setHeuristicsEnabled(true);
         appProperties.setLlmEnabled(true);
 
         ReviewOrchestrator orchestrator = new ReviewOrchestrator(
-                gitHubApiClient,
-                diffParser,
-                heuristicsAnalysisEngine,
-                llmReviewEngine,
-                findingMerger,
-                reviewPublisher,
-                appProperties
+                gitHubApiClient, diffParser, heuristicsAnalysisEngine,
+                llmReviewEngine, findingMerger, reviewPublisher,
+                appProperties, repoConfigLoader
         );
 
         PullRequestContext prContext = PullRequestContext.builder()
@@ -58,6 +57,7 @@ class ReviewOrchestratorTest {
 
         when(gitHubApiClient.fetchPullRequestContext(any())).thenReturn(Mono.just(prContext));
         when(gitHubApiClient.fetchDiff("owner", "repo", 1)).thenReturn(Mono.just("diff"));
+        when(repoConfigLoader.loadConfig("owner", "repo")).thenReturn(Mono.just(new ReviewConfig()));
 
         ChangeChunk chunk = ChangeChunk.builder()
                 .filePath("file.java")
@@ -99,8 +99,8 @@ class ReviewOrchestratorTest {
 
         List<Finding> merged = List.of(heuristicFinding, llmFinding);
         when(findingMerger.mergeAndRank(any())).thenReturn(merged);
-        // Match the 5-arg publishReview call with any autoApprove value
-        when(reviewPublisher.publishReview(anyString(), anyString(), anyInt(), anyList(), anyBoolean()))
+        // Match the 7-arg publishReview call
+        when(reviewPublisher.publishReview(anyString(), anyString(), anyInt(), anyList(), anyBoolean(), anyBoolean()))
                 .thenReturn(Mono.empty());
 
         JsonObject webhookData = new JsonObject();

@@ -23,10 +23,17 @@ public class ReviewPublisher {
 
     public Mono<Void> publishReview(String owner, String repo, int prNumber,
                                      List<Finding> findings, boolean autoApprove) {
+        return publishReview(owner, repo, prNumber, findings, autoApprove, true);
+    }
+
+    public Mono<Void> publishReview(String owner, String repo, int prNumber,
+                                     List<Finding> findings, boolean autoApprove,
+                                     boolean inlineCommentsEnabled) {
         if (findings == null) findings = new ArrayList<>();
 
         // Build inline comments from findings with precise file+line info
-        List<ReviewComment> inlineComments = buildInlineComments(findings);
+        List<ReviewComment> inlineComments = inlineCommentsEnabled
+                ? buildInlineComments(findings) : new ArrayList<>();
 
         // Build the summary body
         String summary = buildReviewSummary(findings);

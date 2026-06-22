@@ -5,6 +5,8 @@ import com.google.gson.JsonObject;
 import com.bot.bot.analysis.HeuristicsAnalysisEngine;
 import com.bot.bot.analysis.LLMReviewEngine;
 import com.bot.bot.config.AppProperties;
+import com.bot.bot.config.RepoConfigLoader;
+import com.bot.bot.config.ReviewConfig;
 import com.bot.bot.diff.UnifiedDiffParser;
 import com.bot.bot.domain.ChangeChunk;
 import com.bot.bot.domain.Finding;
@@ -32,63 +34,85 @@ public class ReviewOrchestrator {
     private final FindingMerger findingMerger;
     private final ReviewPublisher reviewPublisher;
     private final AppProperties appProperties;
+    private final RepoConfigLoader repoConfigLoader;
 
     /**
      * Process pull request asynchronously.
-     * Fetches PR data, analyzes changes, and publishes review.
+     * Fetches PR data, loads per-repo config, analyzes changes, and publishes review.
      */
     @Async
     public void processPullRequest(JsonObject webhookData) {
         log.info("Starting PR review process");
 
         try {
-            // Chain the entire operation as a reactive pipeline
             gitHubApiClient.fetchPullRequestContext(webhookData)
-                    .flatMap(prContext -> processPullRequestContext(prContext))
-                    .block(); // Block is acceptable here since we're in @Async context
-
+                    .flatMap(this::loadRepoConfig)
+                    .flatMap(tuple -> processPullRequestContext(tuple.prContext, tuple.config))
+                    .block();
         } catch (Exception e) {
             log.error("Error processing PR review", e);
         }
     }
 
+    /** Holds a PR context with its per-repo config. */
+    private record ContextWithConfig(PullRequestContext prContext, ReviewConfig config) {}
+
+    /** Fetch per-repo config, falling back to defaults. */
+    private Mono<ContextWithConfig> loadRepoConfig(PullRequestContext prContext) {
+        return repoConfigLoader.loadConfig(prContext.getOwner(), prContext.getRepo())
+                .defaultIfEmpty(new ReviewConfig())
+                .map(config -> {
+                    if (!config.isEnabled()) {
+                        log.info("PR review disabled by .prreview.yaml for {}/{}",
+                                prContext.getOwner(), prContext.getRepo());
+                    }
+                    return new ContextWithConfig(prContext, config);
+                });
+    }
+
     /**
      * Process PR context: fetch diff, analyze, and publish review.
      */
-    private Mono<Void> processPullRequestContext(PullRequestContext prContext) {
+    private Mono<Void> processPullRequestContext(PullRequestContext prContext, ReviewConfig config) {
+        if (!config.isEnabled()) {
+            return Mono.empty();
+        }
+
         log.info("Processing PR {}/{}/#{}", prContext.getOwner(), prContext.getRepo(), prContext.getPrNumber());
 
-        // Fetch diff and start analysis pipeline
         return gitHubApiClient.fetchDiff(prContext.getOwner(), prContext.getRepo(), prContext.getPrNumber())
                 .map(diff -> {
                     List<ChangeChunk> chunks = diffParser.parse(diff);
                     log.info("Parsed {} change chunks", chunks.size());
                     return chunks;
                 })
-                .flatMap(chunks -> analyzeDiff(prContext, chunks))
+                .flatMap(chunks -> analyzeDiff(prContext, config, chunks))
                 .doOnError(e -> log.error("Error in PR processing", e));
     }
 
     /**
      * Analyze changes: run heuristics and LLM analysis, merge findings, and publish.
      */
-    private Mono<Void> analyzeDiff(PullRequestContext prContext, List<ChangeChunk> chunks) {
+    private Mono<Void> analyzeDiff(PullRequestContext prContext, ReviewConfig config, List<ChangeChunk> chunks) {
         log.debug("Starting diff analysis");
+
+        // Filter chunks based on ignored paths
+        List<ChangeChunk> filteredChunks = filterChunks(chunks, config);
 
         // Build list of findings
         List<Finding> findings = new ArrayList<>();
 
-        // 1. Run heuristics analysis (synchronous, fast)
+        // 1. Run heuristics analysis (synchronous)
         if (appProperties.isHeuristicsEnabled()) {
             log.debug("Running heuristics analysis");
-            List<Finding> heuristicFindings = heuristicsAnalysisEngine.analyze(chunks);
+            List<Finding> heuristicFindings = heuristicsAnalysisEngine.analyze(filteredChunks);
             findings.addAll(heuristicFindings);
             log.info("Heuristics found {} findings", heuristicFindings.size());
         }
 
-        // 2. Run LLM analysis (asynchronous, can be slow) with guaranteed fallback
+        // 2. Run LLM analysis (asynchronous)
         Mono<List<Finding>> llmResult = appProperties.isLlmEnabled()
-                ? llmReviewEngine.analyzeWithLLM(prContext, chunks)
+                ? llmReviewEngine.analyzeWithLLM(prContext, filteredChunks)
                     .onErrorResume(e -> {
                         log.error("LLM analysis failed, continuing with heuristics only", e);
                         return Mono.just(new ArrayList<>());
@@ -97,28 +121,91 @@ public class ReviewOrchestrator {
 
         return llmResult.flatMap(llmFindings -> {
             if (llmFindings != null && !llmFindings.isEmpty()) {
-                findings.addAll(llmFindings);
-                log.info("LLM found {} findings", llmFindings.size());
+                // Filter out findings matching ignored rules
+                List<Finding> filtered = filterFindingsByConfig(llmFindings, config);
+                findings.addAll(filtered);
+                log.info("LLM found {} findings ({} after filtering)", llmFindings.size(), filtered.size());
             }
-            return publishReviewWithFindings(prContext, findings);
+            return publishReviewWithFindings(prContext, config, findings);
         });
+    }
+
+    /**
+     * Filter out chunks matching ignored path patterns.
+     */
+    private List<ChangeChunk> filterChunks(List<ChangeChunk> chunks, ReviewConfig config) {
+        if (config.getIgnorePaths().isEmpty()) return chunks;
+
+        List<ChangeChunk> filtered = new ArrayList<>();
+        for (ChangeChunk chunk : chunks) {
+            boolean ignored = false;
+            for (String pattern : config.getIgnorePaths()) {
+                String filePath = chunk.getFilePath();
+                if (filePath != null && (filePath.equals(pattern)
+                        || filePath.endsWith(pattern.replace("*", ""))
+                        || filePath.matches(pattern))) {
+                    ignored = true;
+                    break;
+                }
+            }
+            if (!ignored) {
+                filtered.add(chunk);
+            }
+        }
+        return filtered;
+    }
+
+    /**
+     * Filter out findings from ignored rules.
+     */
+    private List<Finding> filterFindingsByConfig(List<Finding> findings, ReviewConfig config) {
+        if (config.getIgnoreRules().isEmpty()) return findings;
+
+        List<Finding> filtered = new ArrayList<>();
+        for (Finding f : findings) {
+            boolean ignored = false;
+            for (String rule : config.getIgnoreRules()) {
+                if (f.getSource() != null && f.getSource().equalsIgnoreCase(rule)) {
+                    ignored = true;
+                    break;
+                }
+                if (f.getCategory() != null && f.getCategory().equalsIgnoreCase(rule)) {
+                    ignored = true;
+                    break;
+                }
+            }
+            if (!ignored) {
+                filtered.add(f);
+            }
+        }
+        return filtered;
     }
 
     /**
      * Merge, rank, and publish review findings.
      */
-    private Mono<Void> publishReviewWithFindings(PullRequestContext prContext, List<Finding> findings) {
+    private Mono<Void> publishReviewWithFindings(PullRequestContext prContext, ReviewConfig config, List<Finding> findings) {
         log.debug("Merging and ranking {} findings", findings.size());
 
-        // 3. Merge and rank findings
         List<Finding> rankedFindings = findingMerger.mergeAndRank(findings);
         log.info("Final {} findings after deduplication and ranking", rankedFindings.size());
 
-        // 4. Publish review with inline comments
-        log.debug("Publishing review to {}/{}/PR#{}", prContext.getOwner(), prContext.getRepo(), prContext.getPrNumber());
+        // Determine autoApprove: per-repo config overrides global
+        boolean autoApprove = config.getAutoApprove() != null
+                ? config.getAutoApprove()
+                : appProperties.isAutoApprove();
+
+        boolean inlineComments = config.getInlineComments() != null
+                ? config.getInlineComments()
+                : appProperties.isInlineComments();
+
+        log.debug("Publishing review to {}/{}/PR#{} (autoApprove={}, inline={})",
+                prContext.getOwner(), prContext.getRepo(), prContext.getPrNumber(),
+                autoApprove, inlineComments);
+
         return reviewPublisher.publishReview(
                         prContext.getOwner(), prContext.getRepo(), prContext.getPrNumber(),
-                        rankedFindings, appProperties.isAutoApprove())
+                        rankedFindings, autoApprove, inlineComments)
                 .doOnSuccess(v -> log.info("Review published successfully for {}/{}/PR#{}",
                         prContext.getOwner(), prContext.getRepo(), prContext.getPrNumber()))
                 .doOnError(e -> log.error("Error publishing review for {}/{}/PR#{}",

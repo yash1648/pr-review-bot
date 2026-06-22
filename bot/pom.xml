@@ -89,6 +89,12 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- YAML parsing for .prreview.yaml config -->
+        <dependency>
+            <groupId>org.yaml</groupId>
+            <artifactId>snakeyaml</artifactId>
+        </dependency>
+
         <!-- JWT for GitHub App Authentication -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
